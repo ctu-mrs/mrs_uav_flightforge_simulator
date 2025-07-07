@@ -10,6 +10,10 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra)
 endif()
 
+add_compile_options(-Wno-missing-braces)
+
+# 1 == use rclcpp::Timer implementation
+# 0 == use MRS's thread timer implementation
 set(USE_ROS_TIMER 0)
 
 if(${USE_ROS_TIMER})
@@ -18,22 +22,22 @@ endif()
 
 if(ENABLE_COVERAGE)
   message(WARNING "building for coverage, the performance might be limited")
+
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage -fprofile-arcs")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage -fprofile-arcs")
+
   add_definitions("-O1")
   add_definitions("-g")
 endif()
 
 set(DEPENDENCIES
-  ament_cmake
-  Eigen3
   rclcpp
   rclcpp_components
+  Eigen3
   mrs_lib
   mrs_msgs
   mrs_uav_hw_api
   mrs_multirotor_simulator
-  pluginlib
   nav_msgs
   rosgraph_msgs
   sensor_msgs
@@ -44,10 +48,15 @@ set(DEPENDENCIES
   pcl_ros
   pcl_conversions
   geometry_msgs
+  backward_ros
   rosidl_default_generators
 )
 
-list(REMOVE_DUPLICATES DEPENDENCIES)
+set(LIBRARIES
+  MrsUavFlightforgeSimulation_FlightforgeConnector
+  MrsUavFlightforgeSimulation_FlightforgeSimulator
+  MrsUavFlightforgeSimulation_HwApiPlugin
+)
 
 foreach(DEP IN LISTS DEPENDENCIES)
   find_package(${DEP} REQUIRED)
@@ -60,18 +69,18 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 
 include_directories(
   include
-  ${Eigen3_INCLUDE_DIRS}
-)
-
-set(LIBRARIES
-  MrsUavFlightforgeSimulation_FlightforgeConnector
-  MrsUavFlightforgeSimulation_FlightforgeSimulator
-  MrsUavFlightforgeSimulation_HwApiPlugin
+  include/cereal
+  include/flight_forge_connector
+  include/kissnet
+  ${rclcpp_INCLUDE_DIRS}
+  ${mrs_lib_INCLUDE_DIRS}
+  ${mrs_multirotor_simulator_INCLUDE_DIRS}
+  ${mrs_uav_hw_api_INCLUDE_DIRS}
 )
 
 ## | --------------------- FlightForge connector --------------------- |
 
-add_library(MrsUavFlightforgeSimulation_FlightforgeConnector
+add_library(MrsUavFlightforgeSimulation_FlightforgeConnector SHARED
   src/flight_forge_connector/socket_client.cpp
   src/flight_forge_connector/flight_forge_connector.cpp
   src/flight_forge_connector/game_mode_controller.cpp
@@ -79,46 +88,31 @@ add_library(MrsUavFlightforgeSimulation_FlightforgeConnector
 
 ## | ------------------------ FlightForge Simulator ----------------------- |
 
-add_library(MrsUavFlightforgeSimulation_FlightforgeSimulator
+add_library(MrsUavFlightforgeSimulation_FlightforgeSimulator SHARED
   src/flightforge_simulator.cpp
 )
 
 target_link_libraries(MrsUavFlightforgeSimulation_FlightforgeSimulator
   MrsUavFlightforgeSimulation_FlightforgeConnector
-  ${Eigen3_LIBRARIES}
   ${PROJECT_NAME}__rosidl_generator_cpp
 )
 
 ament_target_dependencies(MrsUavFlightforgeSimulation_FlightforgeSimulator
-  rclcpp
-  rclcpp_components
-  mrs_lib
-  mrs_multirotor_simulator
-  sensor_msgs
-  std_msgs
-  mrs_msgs
-  geometry_msgs
-  nav_msgs
-  image_transport
-  cv_bridge
-  pcl_ros
-  pcl_conversions
+  ${DEPENDENCIES}
 )
 
 rclcpp_components_register_nodes(MrsUavFlightforgeSimulation_FlightforgeSimulator PLUGIN "mrs_uav_flightforge_simulation::FlightforgeSimulator" EXECUTABLE MrsUavFlightforgeSimulation_FlightforgeSimulator)
 
+target_compile_definitions(MrsUavFlightforgeSimulation_FlightforgeSimulator PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER})
+
 ## | ---------------------- HW Api Plugin --------------------- |
 
-add_library(MrsUavFlightforgeSimulation_HwApiPlugin
+add_library(MrsUavFlightforgeSimulation_HwApiPlugin SHARED
   src/hw_api_plugin.cpp
 )
 
 ament_target_dependencies(MrsUavFlightforgeSimulation_HwApiPlugin
-  rclcpp
-  rclcpp_components
-  mrs_lib
-  mrs_uav_hw_api
-  pluginlib
+  ${DEPENDENCIES}
 )
 
 target_compile_definitions(MrsUavFlightforgeSimulation_HwApiPlugin PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER})

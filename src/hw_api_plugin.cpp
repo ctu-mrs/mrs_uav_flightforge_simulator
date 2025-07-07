@@ -939,7 +939,7 @@ void Api::timeoutInputs(void) {
 
 //}
 
-}  // namespace mrs_uav_simulator_hw_api_plugin
+}  // namespace mrs_uav_flightforge_hw_api_plugin
 
 #include <pluginlib/class_list_macros.hpp>
 PLUGINLIB_EXPORT_CLASS(mrs_uav_flightforge_hw_api_plugin::Api, mrs_uav_hw_api::MrsUavHwApi)
