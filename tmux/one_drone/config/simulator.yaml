@@ -37,11 +37,10 @@ uav1:
 sensors:
 
   lidar:
-    enabled: true 
-    # horizontal_rays: 256 # [-]
-    # vertical_rays: 128 # [-]
+
+    enabled: true
     horizontal_rays: 128 # [-]
-    vertical_rays: 32 # [-]
+    vertical_rays: 64 # [-]
     offset_x: 0.0 # [m]
     offset_y: 0.0 # [m]
     offset_z: 0.1 # [m]
@@ -50,16 +49,19 @@ sensors:
     rotation_yaw: 0.0 # [deg]
 
     lidar_segmented:
-      enabled: false 
+      enabled: false
       rate: 10.0 # [Hz]
 
   rgb:
-    enabled: true 
+
+    enabled: true
+
     rgb_segmented:
-      enabled: false 
+      enabled: false
       rate: 10.0 # [Hz]
+
     depth:
-      enabled: true 
+      enabled: false
 
   stereo:
-    enabled: true
+    enabled: false

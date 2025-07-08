@@ -24,7 +24,10 @@ def generate_launch_description():
     pkg_name = "mrs_uav_flightforge_simulation"
 
     pkg_share_path = get_package_share_directory(pkg_name)
+
     namespace='flightforge_simulator'
+
+    mrs_simulator_path = get_package_share_directory("mrs_multirotor_simulator")
 
     # #{ custom_config
 
@@ -51,32 +54,33 @@ def generate_launch_description():
 
     # #} end of custom_config
 
-    mrs_multirotor_simulator_configs = [
+    config_files = [
         # general configs
-        pkg_share_path + '/config/multirotor_simulator.yaml',
+        pkg_share_path + '/config/flightforge_simulator.yaml',
         # uavs to load
         pkg_share_path + '/config/uavs.yaml',
     ]
 
     mrs_multirotor_simulator_uav_configs = [
         # general configs
-        pkg_share_path + '/config/multirotor_simulator.yaml',
-        pkg_share_path + '/config/controllers/attitude_controller.yaml',
-        pkg_share_path + '/config/controllers/rate_controller.yaml',
-        pkg_share_path + '/config/controllers/position_controller.yaml',
-        pkg_share_path + '/config/controllers/velocity_controller.yaml',
-        pkg_share_path + '/config/controllers/mixer.yaml',
-        # the UAV configs
-        pkg_share_path + '/config/uavs/a300.yaml',
-        pkg_share_path + '/config/uavs/f330.yaml',
-        pkg_share_path + '/config/uavs/f450.yaml',
-        pkg_share_path + '/config/uavs/f550.yaml',
-        pkg_share_path + '/config/uavs/naki.yaml',
-        pkg_share_path + '/config/uavs/robofly.yaml',
-        pkg_share_path + '/config/uavs/t650.yaml',
-        pkg_share_path + '/config/uavs/x500.yaml',
+        pkg_share_path + '/config/flightforge_simulator.yaml',
         # uavs to load
         pkg_share_path + '/config/uavs.yaml',
+        # general configs
+        mrs_simulator_path + '/config/controllers/attitude_controller.yaml',
+        mrs_simulator_path + '/config/controllers/rate_controller.yaml',
+        mrs_simulator_path + '/config/controllers/position_controller.yaml',
+        mrs_simulator_path + '/config/controllers/velocity_controller.yaml',
+        mrs_simulator_path + '/config/controllers/mixer.yaml',
+        # the UAV configs
+        mrs_simulator_path + '/config/uavs/a300.yaml',
+        mrs_simulator_path + '/config/uavs/f330.yaml',
+        mrs_simulator_path + '/config/uavs/f450.yaml',
+        mrs_simulator_path + '/config/uavs/f550.yaml',
+        mrs_simulator_path + '/config/uavs/naki.yaml',
+        mrs_simulator_path + '/config/uavs/robofly.yaml',
+        mrs_simulator_path + '/config/uavs/t650.yaml',
+        mrs_simulator_path + '/config/uavs/x500.yaml',
     ]
 
     ld.add_action(ComposableNodeContainer(
@@ -102,9 +106,10 @@ def generate_launch_description():
                 namespace='',
                 name='flightforge_simulator',
                 parameters=[
-                    {'simulator_configs': mrs_multirotor_simulator_configs},
-                    {'uav_configs': mrs_multirotor_simulator_uav_configs},
+                    {'config_files': config_files},
                     {'custom_config': custom_config},
+                    {'uav_configs': mrs_multirotor_simulator_uav_configs},
+                    {'use_sim_time': True},
                 ],
 
                 remappings=[

@@ -1,14 +1,19 @@
-simulation_rate: 250.0 # Hz
-clock_rate: 250.0 # Hz
+# the rate of stepping the simulation
+simulation_rate: 100.0 # Hz
 
-# desired realtime factor
+# the rate of publishing of /clock
+clock_rate:      400.0 # Hz, should be >= simulation_rate, ideally in whole multiples of simulation_rate
+
 realtime_factor: 1.0 # [-]
 
-# if true, the RTF is automatically set such that the fastest sensor is always rendered at the desired rate
 dynamic_rtf: true
 
-# TODO describe
-collisions: true
+# when true, the simulation time will get initialized from wall time
+sim_time_from_wall_time: true
+
+iterate_without_input: true
+
+input_timeout: 1.0 # [s]
 
 # Set mutual visibilitiy and collision of UAVs
 uavs_mutual_visibility: true
@@ -71,10 +76,9 @@ sensors:
 
     horizontal_fov_left: 180.0 # [deg]
     horizontal_fov_right: 180.0 # [deg]
-    
-    vertical_fov_up: 52.0 # [deg]
-    vertical_fov_down: 7.0 # [deg]
 
+    vertical_fov_up: 45.0 # [deg]
+    vertical_fov_down: 45.0 # [deg]
 
     horizontal_rays: 128 # [-]
     vertical_rays: 64 # [-]
@@ -121,8 +125,8 @@ sensors:
         std_at_1m: 0.59 # [-]
         std_slope: 0.81 # [-] # multiplies std_at_1m for each meter of measured distances
 
-
   rgb:
+
     enabled: false
 
     rate: 30.0 # [Hz]
@@ -154,7 +158,7 @@ sensors:
 
     depth:
       enabled: false
-      rate: 10.0 # [Hz]    
+      rate: 10.0 # [Hz]
 
   stereo:
 
@@ -181,6 +185,50 @@ sensors:
     rotation_yaw: 0.0 # [deg]
     rotation_roll: 0.0 # [deg]
 
+subscribers:
+
+  # used for feedforward
+  tracker_cmd:
+    enabled: true
+
+  position_cmd:
+    enabled: true
+
+  velocity_hdg_cmd:
+    enabled: true
+
+  velocity_hdg_rate_cmd:
+    enabled: true
+
+  acceleration_hdg_cmd:
+    enabled: true
+
+  acceleration_hdg_rate_cmd:
+    enabled: true
+
+  attitude_cmd:
+    enabled: true
+
+  attitude_rate_cmd:
+    enabled: true
+
+  control_group_cmd:
+    enabled: true
+
+  actuators_group_cmd:
+    enabled: true
+
+publishers:
+
+  odometry:
+    enabled: true
+
+  rangefinder:
+    enabled: true
+
+  imu:
+    enabled: true
+
 frames:
   world:
     name: "simulator_origin"
@@ -190,7 +238,14 @@ frames:
     publish_tf: false
   rangefinder:
     name: "garmin"
-    publish_tf: false
+    publish_tf: true
+
+collisions:
+  enabled: true
+  crash: true
+
+  # if crash==false, then the collisions are elastic
+  rebounce: 100.0
 
 # randomization of the initial conditions around the desired spawn point
 randomization:
@@ -198,22 +253,17 @@ randomization:
   enabled: false
 
   bounds:
-    x: 15.0 # [m]
-    y: 15.0 # [m]
-    z: 15.0 # [m]
+    x: 15.0
+    y: 15.0
+    z: 15.0
 
-# this virtual ground is simulated outside of Unreal, therefore should be turned off
 ground:
-  enabled: false
+  enabled: true
   z: 0.0 # [m]
-
-input_timeout: 1.0 # [s]
-
-iterate_without_input: true
-
-g: 9.81 # [ms^-2]
 
 # * when enabled, this will place a temporary patch of ground just under the spawn location
 # * this patch will disappear after the total_thrust > 0.9*hover_thrust
 individual_takeoff_platform:
-  enabled: true
+  enabled: false
+
+g: 9.81 # [ms^-2]

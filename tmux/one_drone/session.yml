@@ -6,12 +6,12 @@ attach: false
 tmux_options: -f /etc/ctu-mrs/tmux.conf
 # you can modify these
 startup_window: simulator
-pre_window: export UAV_NAME=uav1; export USE_SIM_TIME="true"; export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+pre_window: export UAV_NAME=uav1; export USE_SIM_TIME="true"; export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 windows:
-  - router:
-      layout: tiled
-      panes:
-        - ros2 run rmw_zenoh_cpp rmw_zenohd
+  # - router:
+  #     layout: tiled
+  #     panes:
+  #       - ros2 run rmw_zenoh_cpp rmw_zenohd
   - simulator:
       layout: tiled
       panes:
@@ -53,12 +53,12 @@ windows:
   - rviz:
       layout: tiled
       panes:
-        - ros2 run rviz2 rviz2 -d ./rviz.rviz
+        - ros2 run rviz2 rviz2 -d ./rviz.rviz --ros-args -p use_sim_time:=true
   # - rqrReconfigure:
   #     layaut: tiled
   #     panes:
   #       - ros2 run rqt_reconfigure rqt_reconfigure
-  # - layout:
-  #     layout: tiled
-  #     panes:
-  #       - sleep 5; ~/.i3/layout_manager.sh ./layout.json
+  - layout:
+      layout: tiled
+      panes:
+        - sleep 5; ~/.i3/layout_manager.sh ./layout.json

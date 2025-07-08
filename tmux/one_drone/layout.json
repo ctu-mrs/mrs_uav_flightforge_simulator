@@ -4,7 +4,8 @@
 		"floating": "auto_off",
 		"fullscreen_mode": 0,
 		"layout": "splitv",
-		"percent": 0.285714285714286,
+		"marks": [],
+		"percent": null,
 		"type": "con",
 		"nodes": [
 		{
@@ -12,39 +13,51 @@
 			"current_border_width": 3,
 			"floating": "auto_off",
 			"geometry": {
-				"height": 1030,
+				"height": 1148,
 				"width": 936,
-				"x": 4806,
-				"y": 32
+				"x": 2046,
+				"y": 754
 			},
-			"name": "rviz.rviz* - RViz",
-			"percent": 0.5,
+			"marks": [],
+			"name": "./rviz.rviz* - RViz",
+			"percent": 0.71,
 			"swallows": [
 			{
-				"instance": "^rviz$"
+				"instance": "^rviz2$"
 			}
 			],
 			"type": "con"
 		},
 		{
-			"border": "pixel",
-			"current_border_width": 3,
+			"border": "normal",
 			"floating": "auto_off",
-			"geometry": {
-				"height": 460,
-				"width": 724,
-				"x": 0,
-				"y": 0
-			},
-			"name": "./start.sh",
-			"percent": 0.5,
-			"swallows": [
+			"layout": "splith",
+			"marks": [],
+			"percent": 0.29,
+			"type": "con",
+			"nodes": [
 			{
-				"instance": "^urxvt$"
+				"border": "pixel",
+				"current_border_width": 3,
+				"floating": "auto_off",
+				"geometry": {
+					"height": 436,
+					"width": 804,
+					"x": 0,
+					"y": 0
+				},
+				"marks": [],
+				"name": "urxvt",
+				"percent": 1,
+				"swallows": [
+				{
+					"instance": "^urxvt$"
+				}
+				],
+				"type": "con"
 			}
-			],
-			"type": "con"
+			]
 		}
-	]
+		]
 }
 ]

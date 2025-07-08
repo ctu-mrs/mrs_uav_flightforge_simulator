@@ -63,6 +63,12 @@ using PCLPointCloud          = pcl::PointCloud<PCLPoint>;
 using PCLPointCloudColor     = pcl::PointCloud<pcl::PointXYZRGB>;
 using PCLPointCloudIntensity = pcl::PointCloud<pcl::PointXYZI>;
 
+#if USE_ROS_TIMER == 1
+typedef mrs_lib::ROSTimer TimerType;
+#else
+typedef mrs_lib::ThreadTimer TimerType;
+#endif
+
 //}
 
 namespace mrs_uav_flightforge_simulation
@@ -118,29 +124,29 @@ private:
   rclcpp::TimerBase::SharedPtr timer_unreal_sync_;
   void                         timerUnrealSync();
 
-  rclcpp::TimerBase::SharedPtr timer_rangefinder_;
-  void                         timerRangefinder();
+  std::shared_ptr<TimerType> timer_rangefinder_;
+  void                       timerRangefinder();
 
-  rclcpp::TimerBase::SharedPtr timer_lidar_;
-  void                         timerLidar();
+  std::shared_ptr<TimerType> timer_lidar_;
+  void                       timerLidar();
 
-  rclcpp::TimerBase::SharedPtr timer_seg_lidar_;
-  void                         timerSegLidar();
+  std::shared_ptr<TimerType> timer_seg_lidar_;
+  void                       timerSegLidar();
 
-  rclcpp::TimerBase::SharedPtr timer_int_lidar_;
-  void                         timerIntLidar();
+  std::shared_ptr<TimerType> timer_int_lidar_;
+  void                       timerIntLidar();
 
-  rclcpp::TimerBase::SharedPtr timer_rgb_;
-  void                         timerRgb();
+  std::shared_ptr<TimerType> timer_rgb_;
+  void                       timerRgb();
 
-  rclcpp::TimerBase::SharedPtr timer_rgb_segmented_;
-  void                         timerRgbSegmented();
+  std::shared_ptr<TimerType> timer_rgb_segmented_;
+  void                       timerRgbSegmented();
 
-  rclcpp::TimerBase::SharedPtr timer_depth_;
-  void                         timerDepth();
+  std::shared_ptr<TimerType> timer_depth_;
+  void                       timerDepth();
 
-  rclcpp::TimerBase::SharedPtr timer_stereo_;
-  void                         timerStereo();
+  std::shared_ptr<TimerType> timer_stereo_;
+  void                       timerStereo();
 
   // | ------------------------ rtf check ----------------------- |
 
@@ -156,11 +162,11 @@ private:
   std::vector<mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>> ph_seg_lidars_;
   std::vector<mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>> ph_int_lidars_;
 
-  std::vector<image_transport::Publisher> imp_rgb_;
-  std::vector<image_transport::Publisher> imp_stereo_left_;
-  std::vector<image_transport::Publisher> imp_stereo_right_;
-  std::vector<image_transport::Publisher> imp_rgbd_segmented_;
-  std::vector<image_transport::Publisher> imp_depth_;
+  std::vector<image_transport::Publisher> ph_img_rgb_;
+  std::vector<image_transport::Publisher> ph_imp_stereo_left_;
+  std::vector<image_transport::Publisher> ph_imp_stereo_right_;
+  std::vector<image_transport::Publisher> ph_imp_rgbd_segmented_;
+  std::vector<image_transport::Publisher> ph_imp_depth_;
 
 
   std::vector<mrs_lib::PublisherHandler<sensor_msgs::msg::CameraInfo>> ph_rgb_camera_info_;
@@ -234,9 +240,12 @@ private:
 
   struct drs_params
   {
-    double realtime_factor     = 1.0;
-    bool   dynamic_rtf         = false;
-    bool   paused              = false;
+    double realtime_factor = 1.0;
+    bool   dynamic_rtf     = false;
+    bool   paused          = false;
+
+    // TODO load collisions params
+    // TODO implement mutual collisions
     bool   collisions_enabled  = false;
     bool   collisions_crash    = false;
     double collisions_rebounce = 1;
@@ -244,13 +253,13 @@ private:
     bool   rangefinder_enabled = false;
     double rangefinder_rate    = 0.0;
 
-    bool   lidar_enabled       = true;
+    bool   lidar_enabled       = false;
     double lidar_rate          = 10.0;
     bool   lidar_noise_enabled = false;
     double lidar_std_at_1m     = 0.0;
     double lidar_std_slope     = 0.0;
 
-    bool   lidar_seg_enabled = true;
+    bool   lidar_seg_enabled = false;
     double lidar_seg_rate    = 10.0;
 
     bool   lidar_int_enabled         = false;
@@ -266,7 +275,7 @@ private:
     double lidar_int_std_at_1m       = 0.0;
     double lidar_int_std_slope       = 0.0;
 
-    bool   rgb_enabled                = true;
+    bool   rgb_enabled                = false;
     double rgb_rate                   = 10.0;
     bool   rgb_enable_hdr             = false;
     bool   rgb_enable_temporal_aa     = false;
@@ -275,13 +284,13 @@ private:
     double rgb_motion_blur_amount     = 0.0;
     double rgb_motion_blur_distortion = 0.0;
 
-    bool   rgb_segmented_enabled = true;
+    bool   rgb_segmented_enabled = false;
     double rgb_segmented_rate    = 10.0;
 
     bool   rgb_depth_enabled = false;
     double rgb_depth_rate    = 0.0;
 
-    bool   stereo_enabled            = true;
+    bool   stereo_enabled            = false;
     double stereo_rate               = 10.0;
     bool   stereo_enable_hdr         = false;
     bool   stereo_enable_temporal_aa = false;
@@ -627,6 +636,24 @@ private:
 
 FlightforgeSimulator::FlightforgeSimulator(rclcpp::NodeOptions options) : Node("mrs_uav_flightforge_simulation", options) {
 
+  timer_init_ = this->create_wall_timer(std::chrono::duration<double>(0.1s), std::bind(&FlightforgeSimulator::timerInit, this));
+}
+
+//}
+
+// | ------------------------- timers ------------------------- |
+
+/* timerInit() //{ */
+
+void FlightforgeSimulator::timerInit() {
+
+  node_  = this->shared_from_this();
+  clock_ = node_->get_clock();
+
+  srand(time(NULL));
+
+  RCLCPP_INFO(node_->get_logger(), "initializing");
+
   {
     auto param_desc = rcl_interfaces::msg::ParameterDescriptor{};
 
@@ -681,23 +708,6 @@ FlightforgeSimulator::FlightforgeSimulator(rclcpp::NodeOptions options) : Node("
     node_->declare_parameter("dynamic/collisions_rebounce", 1.0, param_desc);
   }
 
-  timer_init_ = node_->create_wall_timer(std::chrono::duration<double>(0.1s), std::bind(&FlightforgeSimulator::timerInit, this));
-}
-
-//}
-
-// | ------------------------- timers ------------------------- |
-
-/* timerInit() //{ */
-
-void FlightforgeSimulator::timerInit() {
-
-  node_  = node_->shared_from_this();
-  clock_ = node_->get_clock();
-
-  srand(time(NULL));
-
-  RCLCPP_INFO(node_->get_logger(), "initializing");
 
   cbgrp_main_   = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   cbgrp_status_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -717,7 +727,7 @@ void FlightforgeSimulator::timerInit() {
   // load other configs
 
   std::vector<std::string> config_files;
-  param_loader.loadParam("simulator_configs", config_files);
+  param_loader.loadParam("config_files", config_files);
 
   for (auto config_file : config_files) {
     RCLCPP_INFO(node_->get_logger(), "loading config file '%s'", config_file.c_str());
@@ -758,6 +768,92 @@ void FlightforgeSimulator::timerInit() {
     sim_time_       = rclcpp::Time(0, 0, RCL_ROS_TIME);
     last_step_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
+
+  param_loader.loadParam("sensors/rangefinder/enabled", drs_params_.rangefinder_enabled);
+  param_loader.loadParam("sensors/rangefinder/rate", drs_params_.rangefinder_rate);
+
+  param_loader.loadParam("sensors/lidar/enabled", drs_params_.lidar_enabled);
+  param_loader.loadParam("sensors/lidar/rate", drs_params_.lidar_rate);
+
+  param_loader.loadParam("sensors/lidar/horizontal_fov_left", lidar_horizontal_fov_left_);
+  param_loader.loadParam("sensors/lidar/horizontal_fov_right", lidar_horizontal_fov_right_);
+
+  param_loader.loadParam("sensors/lidar/vertical_fov_up", lidar_vertical_fov_up_);
+  param_loader.loadParam("sensors/lidar/vertical_fov_down", lidar_vertical_fov_down_);
+
+  param_loader.loadParam("sensors/lidar/horizontal_rays", lidar_horizontal_rays_);
+  param_loader.loadParam("sensors/lidar/vertical_rays", lidar_vertical_rays_);
+
+  param_loader.loadParam("sensors/lidar/rotation_pitch", lidar_rotation_pitch_);
+  param_loader.loadParam("sensors/lidar/rotation_roll", lidar_rotation_roll_);
+  param_loader.loadParam("sensors/lidar/rotation_yaw", lidar_rotation_yaw_);
+
+  param_loader.loadParam("sensors/lidar/beam_length", lidar_beam_length_);
+
+  param_loader.loadParam("sensors/lidar/noise/enabled", drs_params_.lidar_noise_enabled);
+  param_loader.loadParam("sensors/lidar/noise/std_at_1m", drs_params_.lidar_std_at_1m);
+  param_loader.loadParam("sensors/lidar/noise/std_slope", drs_params_.lidar_std_slope);
+
+  param_loader.loadParam("sensors/lidar/lidar_segmented/enabled", drs_params_.lidar_seg_enabled);
+  param_loader.loadParam("sensors/lidar/lidar_segmented/rate", drs_params_.lidar_seg_rate);
+
+  param_loader.loadParam("sensors/lidar/lidar_intensity/enabled", drs_params_.lidar_int_enabled);
+  param_loader.loadParam("sensors/lidar/lidar_intensity/rate", drs_params_.lidar_int_rate);
+  param_loader.loadParam("sensors/lidar/lidar_intensity/values/grass", drs_params_.lidar_int_value_grass);
+  param_loader.loadParam("sensors/lidar/lidar_intensity/values/road", drs_params_.lidar_int_value_road);
+  param_loader.loadParam("sensors/lidar/lidar_intensity/values/tree", drs_params_.lidar_int_value_tree);
+  param_loader.loadParam("sensors/lidar/lidar_intensity/values/building", drs_params_.lidar_int_value_building);
+  param_loader.loadParam("sensors/lidar/lidar_intensity/values/fence", drs_params_.lidar_int_value_fence);
+  param_loader.loadParam("sensors/lidar/lidar_intensity/values/dirt_road", drs_params_.lidar_int_value_dirt_road);
+  param_loader.loadParam("sensors/lidar/lidar_intensity/values/other", drs_params_.lidar_int_value_other);
+  param_loader.loadParam("sensors/lidar/lidar_intensity/noise/enabled", drs_params_.lidar_int_noise_enabled);
+  param_loader.loadParam("sensors/lidar/lidar_intensity/noise/std_at_1m", drs_params_.lidar_int_std_at_1m);
+  param_loader.loadParam("sensors/lidar/lidar_intensity/noise/std_slope", drs_params_.lidar_int_std_slope);
+
+  param_loader.loadParam("sensors/rgb/enabled", drs_params_.rgb_enabled);
+  param_loader.loadParam("sensors/rgb/rate", drs_params_.rgb_rate);
+
+  param_loader.loadParam("sensors/rgb/width", rgb_width_);
+  param_loader.loadParam("sensors/rgb/height", rgb_height_);
+  param_loader.loadParam("sensors/rgb/fov", rgb_fov_);
+
+  param_loader.loadParam("sensors/rgb/offset_x", rgb_offset_x_);
+  param_loader.loadParam("sensors/rgb/offset_y", rgb_offset_y_);
+  param_loader.loadParam("sensors/rgb/offset_z", rgb_offset_z_);
+
+  param_loader.loadParam("sensors/rgb/rotation_pitch", rgb_rotation_pitch_);
+  param_loader.loadParam("sensors/rgb/rotation_roll", rgb_rotation_roll_);
+  param_loader.loadParam("sensors/rgb/rotation_yaw", rgb_rotation_yaw_);
+
+  param_loader.loadParam("sensors/rgb/enable_hdr", drs_params_.rgb_enable_hdr);
+  param_loader.loadParam("sensors/rgb/enable_temporal_aa", drs_params_.rgb_enable_temporal_aa);
+  param_loader.loadParam("sensors/rgb/enable_raytracing", drs_params_.rgb_enable_raytracing);
+  param_loader.loadParam("sensors/rgb/enable_motion_blur", drs_params_.rgb_enable_motion_blur);
+  param_loader.loadParam("sensors/rgb/motion_blur_amount", drs_params_.rgb_motion_blur_amount);
+  param_loader.loadParam("sensors/rgb/motion_blur_distortion", drs_params_.rgb_motion_blur_distortion);
+
+  param_loader.loadParam("sensors/rgb/rgb_segmented/enabled", drs_params_.rgb_segmented_enabled);
+  param_loader.loadParam("sensors/rgb/rgb_segmented/rate", drs_params_.rgb_segmented_rate);
+
+  param_loader.loadParam("sensors/stereo/enabled", drs_params_.stereo_enabled);
+  param_loader.loadParam("sensors/stereo/rate", drs_params_.stereo_rate);
+  param_loader.loadParam("sensors/stereo/enable_hdr", drs_params_.stereo_enable_hdr);
+  param_loader.loadParam("sensors/stereo/enable_temporal_aa", drs_params_.stereo_enable_temporal_aa);
+  param_loader.loadParam("sensors/stereo/enable_raytracing", drs_params_.stereo_enable_raytracing);
+
+  param_loader.loadParam("sensors/stereo/baseline", stereo_baseline_);
+
+  param_loader.loadParam("sensors/stereo/width", stereo_width_);
+  param_loader.loadParam("sensors/stereo/height", stereo_height_);
+  param_loader.loadParam("sensors/stereo/fov", stereo_fov_);
+
+  param_loader.loadParam("sensors/stereo/offset_x", stereo_offset_x_);
+  param_loader.loadParam("sensors/stereo/offset_y", stereo_offset_y_);
+  param_loader.loadParam("sensors/stereo/offset_z", stereo_offset_z_);
+
+  param_loader.loadParam("sensors/stereo/rotation_pitch", stereo_rotation_pitch_);
+  param_loader.loadParam("sensors/stereo/rotation_roll", stereo_rotation_roll_);
+  param_loader.loadParam("sensors/stereo/rotation_yaw", stereo_rotation_yaw_);
 
   last_sim_time_status_ = sim_time_;
 
@@ -883,6 +979,7 @@ void FlightforgeSimulator::timerInit() {
   /* } */
 
   res = ueds_game_controller_->SetDatetime(12, 0);
+
   if (res) {
     RCLCPP_INFO(node_->get_logger(), "SetDatetime successful.");
   } else {
@@ -979,11 +1076,11 @@ void FlightforgeSimulator::timerInit() {
     ph_seg_lidars_.push_back(mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>(node_, "/" + uav_name + "/lidar_segmented/points"));
     ph_int_lidars_.push_back(mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>(node_, "/" + uav_name + "/lidar_intensity/points"));
 
-    imp_rgb_.push_back(it_->advertise("/" + uav_name + "/rgb/image_raw", 1));
-    imp_stereo_left_.push_back(it_->advertise("/" + uav_name + "/stereo/left/image_raw", 1));
-    imp_stereo_right_.push_back(it_->advertise("/" + uav_name + "/stereo/right/image_raw", 1));
-    imp_rgbd_segmented_.push_back(it_->advertise("/" + uav_name + "/rgb_segmented/image_raw", 1));
-    imp_depth_.push_back(it_->advertise("/" + uav_name + "/depth/image_raw", 1));
+    ph_img_rgb_.push_back(it_->advertise("/" + uav_name + "/rgb/image_raw", 1));
+    ph_imp_stereo_left_.push_back(it_->advertise("/" + uav_name + "/stereo/left/image_raw", 1));
+    ph_imp_stereo_right_.push_back(it_->advertise("/" + uav_name + "/stereo/right/image_raw", 1));
+    ph_imp_rgbd_segmented_.push_back(it_->advertise("/" + uav_name + "/rgb_segmented/image_raw", 1));
+    ph_imp_depth_.push_back(it_->advertise("/" + uav_name + "/depth/image_raw", 1));
 
 
     ph_rgb_camera_info_.push_back(mrs_lib::PublisherHandler<sensor_msgs::msg::CameraInfo>(node_, "/" + uav_name + "/rgb/camera_info"));
@@ -1072,12 +1169,10 @@ void FlightforgeSimulator::timerInit() {
     }
   }
 
-
-  // | --------------- dynamic reconfigure server --------------- |
-
   if (!param_loader.loadedSuccessfully()) {
     RCLCPP_ERROR(node_->get_logger(), "could not load all parameters!");
     rclcpp::shutdown();
+    exit(1);
   }
 
   // | ---------------- bind param server callback -------------- |
@@ -1105,31 +1200,70 @@ void FlightforgeSimulator::timerInit() {
 
   timer_unreal_sync_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / _clock_rate_), std::bind(&FlightforgeSimulator::timerUnrealSync, this), cbgrp_status_);
 
+  mrs_lib::TimerHandlerOptions timer_opts_sensors;
+
+  timer_opts_sensors.node           = node_;
+  timer_opts_sensors.callback_group = cbgrp_sensors_;
+
   if (drs_params_.rangefinder_rate > 0) {
-    timer_rangefinder_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / drs_params_.rangefinder_rate), std::bind(&FlightforgeSimulator::timerRangefinder, this), cbgrp_sensors_);
+    {
+      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerRangefinder, this);
+
+      timer_rangefinder_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.rangefinder_rate, clock_), callback_fcn);
+    }
   }
+
   if (drs_params_.lidar_rate > 0) {
-    timer_lidar_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / drs_params_.lidar_rate), std::bind(&FlightforgeSimulator::timerLidar, this), cbgrp_sensors_);
+    {
+      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerLidar, this);
+
+      timer_lidar_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.lidar_rate, clock_), callback_fcn);
+    }
   }
+
   if (drs_params_.lidar_seg_rate > 0) {
-    timer_seg_lidar_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / drs_params_.lidar_seg_rate), std::bind(&FlightforgeSimulator::timerSegLidar, this), cbgrp_sensors_);
+    {
+      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerSegLidar, this);
+
+      timer_seg_lidar_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.lidar_seg_rate, clock_), callback_fcn);
+    }
   }
+
   if (drs_params_.lidar_int_rate > 0) {
-    timer_int_lidar_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / drs_params_.lidar_int_rate), std::bind(&FlightforgeSimulator::timerIntLidar, this), cbgrp_sensors_);
+    {
+      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerIntLidar, this);
+
+      timer_int_lidar_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.lidar_int_rate, clock_), callback_fcn);
+    }
   }
+
   if (drs_params_.rgb_rate > 0) {
-    timer_rgb_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / drs_params_.rgb_rate), std::bind(&FlightforgeSimulator::timerRgb, this), cbgrp_sensors_);
+    {
+      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerRgb, this);
+
+      timer_rgb_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.rgb_rate, clock_), callback_fcn);
+    }
   }
+
   if (drs_params_.stereo_rate > 0) {
-    timer_stereo_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / drs_params_.stereo_rate), std::bind(&FlightforgeSimulator::timerStereo, this), cbgrp_sensors_);
+    {
+      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerStereo, this);
+
+      timer_stereo_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.stereo_rate, clock_), callback_fcn);
+    }
   }
+
   if (drs_params_.rgb_segmented_rate > 0) {
-    timer_rgb_segmented_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / drs_params_.rgb_segmented_rate), std::bind(&FlightforgeSimulator::timerRgbSegmented, this), cbgrp_sensors_);
+    {
+      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerRgbSegmented, this);
+
+      timer_rgb_segmented_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.rgb_segmented_rate, clock_), callback_fcn);
+    }
   }
+
   /* if (drs_params_.rgb_depth_rate > 0) { */
   /*   timer_depth_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / drs_params_.rgb_depth_rate), std::bind(&FlightforgeSimulator::timerDepth, this), cbgrp_sensors_); */
   /* } */
-
 
   // | ----------------------- scope timer ---------------------- |
 
@@ -1140,6 +1274,7 @@ void FlightforgeSimulator::timerInit() {
   fabricateCamInfo();
 
   publishStaticTfs();
+
   // | ----------------------- finish init ---------------------- |
 
   is_initialized_ = true;
@@ -1276,7 +1411,7 @@ void FlightforgeSimulator::timerStatus() {
     checkForCrash();
   }
 
-  RCLCPP_INFO(node_->get_logger(), "%s, desired RTF = %.2f, actual RTF = %.2f, FlightForge FPS = %.2f", drs_params.paused ? "paused" : "running", drs_params.realtime_factor, actual_rtf_, flightforge_fps_);
+  RCLCPP_INFO(node_->get_logger(), "%s, desired RTF = %.2f, actual RTF = %.2f, FlightForge FPS = %.2f, FlightForge RTF = %.2f", drs_params.paused ? "paused" : "running", drs_params.realtime_factor, actual_rtf_, flightforge_fps_, flightforge_rtf);
 }
 
 //}
@@ -1284,9 +1419,11 @@ void FlightforgeSimulator::timerStatus() {
 /* timerUnrealSync() //{ */
 
 void FlightforgeSimulator::timerUnrealSync() {
+
   if (!is_initialized_) {
     return;
   }
+
   updateUnrealPoses(false);
 }
 
@@ -1362,7 +1499,9 @@ void FlightforgeSimulator::timerTimeSync() {
 //}
 
 /*timerRangefinder()//{*/
+
 void FlightforgeSimulator::timerRangefinder() {
+
   if (!is_initialized_) {
     return;
   }
@@ -1442,10 +1581,11 @@ void FlightforgeSimulator::timerLidar() {
     sensor_msgs::PointCloud2Modifier modifier(pcl_msg);
     modifier.setPointCloud2Fields(4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1, sensor_msgs::msg::PointField::FLOAT32, "z", 1, sensor_msgs::msg::PointField::FLOAT32, "intensity", 1, sensor_msgs::msg::PointField::FLOAT32);
 
-    // Msg header
-    auto sim_time = mrs_lib::get_mutexed(mutex_sim_time_, sim_time_);
+    auto last_step_time = mrs_lib::get_mutexed(mutex_sim_time_, last_step_time_);
 
-    pcl_msg.header.stamp    = sim_time;
+    // TODO we should publish the actual stamp from the unreal sim (transformed to the simtime)
+    pcl_msg.header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+
     pcl_msg.header.frame_id = "uav" + std::to_string(i + 1) + "/lidar";
     pcl_msg.height          = lidar_vertical_rays_;
     pcl_msg.width           = lidar_horizontal_rays_;
@@ -1669,7 +1809,7 @@ void FlightforgeSimulator::timerRgb() {
     return;
   }
 
-  /* mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerRgb()"); */
+  /* mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer(node_, "timerRgb()"); */
 
   auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
 
@@ -1719,7 +1859,7 @@ void FlightforgeSimulator::timerRgb() {
       msg->header.stamp               = shifted_time_stamp;
     }
 
-    imp_rgb_[i].publish(msg);
+    ph_img_rgb_[i].publish(msg);
 
     auto camera_info = rgb_camera_info_;
 
@@ -1743,7 +1883,7 @@ void FlightforgeSimulator::timerStereo() {
 
   auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
 
-  if (!drs_params.rgb_enabled) {
+  if (!drs_params.stereo_enabled) {
     return;
   }
 
@@ -1792,11 +1932,11 @@ void FlightforgeSimulator::timerStereo() {
       rclcpp::Time shifted_time_stamp = rclcpp::Time(clock_->now().seconds() - (relative_wall_age * actual_rtf_));
       msg_right->header.stamp         = shifted_time_stamp;
     }
+
     msg_left->header.stamp = msg_right->header.stamp;
 
-    imp_stereo_left_[i].publish(msg_left);
-    imp_stereo_right_[i].publish(msg_right);
-
+    ph_imp_stereo_left_[i].publish(msg_left);
+    ph_imp_stereo_right_[i].publish(msg_right);
 
     {
       auto camera_info = stereo_camera_info_;
@@ -1880,7 +2020,7 @@ void FlightforgeSimulator::timerRgbSegmented() {
 
     msg->header.stamp = clock_->now();
 
-    imp_rgbd_segmented_[i].publish(msg);
+    ph_imp_rgbd_segmented_[i].publish(msg);
 
     auto camera_info = rgb_camera_info_;
 
@@ -1952,7 +2092,7 @@ void FlightforgeSimulator::timerDepth() {
 
     msg->header.stamp = clock_->now();
 
-    imp_rgb_[i].publish(msg);
+    ph_imp_depth_[i].publish(msg);
 
     auto camera_info = rgb_camera_info_;
 
@@ -1989,6 +2129,7 @@ rcl_interfaces::msg::SetParametersResult FlightforgeSimulator::callbackParameter
         timer_status_ = node_->create_wall_timer(std::chrono::duration<double>(1.0), std::bind(&FlightforgeSimulator::timerStatus, this), cbgrp_status_);
 
       } else if (!drs_params.paused && param.as_bool()) {
+
         timer_main_->cancel();
         timer_status_->cancel();
       }
