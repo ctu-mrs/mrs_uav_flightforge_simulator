@@ -23,7 +23,7 @@ uavs_mutual_visibility: true
 #  2 - HIGH
 #  4 - EPIC
 #  5 - CINEMATIC
-graphics_settings: "medium"
+graphics_settings: "low"
 
 # 0 -  VALLEY
 # 1 -  FOREST
@@ -32,7 +32,7 @@ graphics_settings: "medium"
 # 4 -  CAVE
 # 5 -  ERDING_AIRBASE
 # 6 -  TEMESVAR :D
-world_name: "infinite_forest"
+world_name: "valley"
 
 #  {"sunny", 0},
 #  {"cloudy", 1},
@@ -44,11 +44,11 @@ world_name: "infinite_forest"
 #  {"sand_dust_storm", 7},
 #  {"snow", 8},
 #  {"snow_blizzards", 9}
-weather_type: "foggy"
+weather_type: "cloudy"
 
 daytime:
-  hour: 7
-  minute: 30
+  hour: 18
+  minute: 25
 
 ############ Only Forest Procedural Generation settings ############
 

@@ -1,9 +1,0 @@
-position_controller:
-
-  # PID gains
-  kp: 2.0
-  kd: 0.15
-  ki: 0.2
-
-  # output limit
-  max_velocity: 6.0 # m/s

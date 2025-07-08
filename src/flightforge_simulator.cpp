@@ -228,6 +228,9 @@ private:
   ueds_connector::Daytime daytime_;
   bool                    uavs_mutual_visibility_ = true;
 
+  int daytime_hour_   = 0;
+  int daytime_minute_ = 0;
+
   // | ------------------------- Transformations ------------------------ |
 
   std::shared_ptr<mrs_lib::TransformBroadcaster>       tf_broadcaster_;
@@ -855,6 +858,18 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam("sensors/stereo/rotation_roll", stereo_rotation_roll_);
   param_loader.loadParam("sensors/stereo/rotation_yaw", stereo_rotation_yaw_);
 
+  param_loader.loadParam("graphics_settings", flightforge_graphics_settings_enum_);
+  param_loader.loadParam("uavs_mutual_visibility", uavs_mutual_visibility_);
+  param_loader.loadParam("daytime/hour", daytime_hour_);
+  param_loader.loadParam("daytime/minute", daytime_minute_);
+  param_loader.loadParam("world_name", flightforge_world_level_name_enum_);
+
+  if (!param_loader.loadedSuccessfully()) {
+    RCLCPP_ERROR(node_->get_logger(), "could not load all parameters!");
+    rclcpp::shutdown();
+    exit(1);
+  }
+
   last_sim_time_status_ = sim_time_;
 
   drs_params_.paused = false;
@@ -866,7 +881,6 @@ void FlightforgeSimulator::timerInit() {
   it_ = std::make_shared<image_transport::ImageTransport>(node_);
 
   std::vector<std::string> uav_names;
-
   param_loader.loadParam("uav_names", uav_names);
 
   for (size_t i = 0; i < uav_names.size(); i++) {
@@ -919,11 +933,7 @@ void FlightforgeSimulator::timerInit() {
     rclcpp::shutdown();
   }
 
-  std::string world_name;
-
-  param_loader.loadParam("world_name", world_name);
-
-  res = ueds_game_controller_->SwitchWorldLevel(ueds_connector::WorldName::Name2Id().at(world_name));
+  res = ueds_game_controller_->SwitchWorldLevel(ueds_connector::WorldName::Name2Id().at(flightforge_world_level_name_enum_));
 
   if (res) {
     RCLCPP_INFO(node_->get_logger(), "World was switched succesfully.");
@@ -951,21 +961,17 @@ void FlightforgeSimulator::timerInit() {
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
 
-  res = ueds_game_controller_->SetGraphicsSettings(ueds_connector::GraphicsSettings::Name2Id().at("low"));
+  res = ueds_game_controller_->SetGraphicsSettings(ueds_connector::GraphicsSettings::Name2Id().at(flightforge_graphics_settings_enum_));
 
   if (res) {
-    RCLCPP_INFO(node_->get_logger(), "Graphical Settings was set succesfully to low");
-
-    /* RCLCPP_INFO(node_->get_logger(), "Graphical Settings was set succesfully to '%s'", ueds_graphics_settings_enum_.c_str()); */
+    RCLCPP_INFO(node_->get_logger(), "Graphical Settings was set succesfully to '%s'", flightforge_graphics_settings_enum_.c_str());
   } else {
-
-    /* RCLCPP_ERROR(node_->get_logger(), "Graphical Settings was not set succesfully to '%s'", ueds_graphics_settings_enum_.c_str()); */
-    RCLCPP_ERROR(node_->get_logger(), "Graphical Settings was not set succesfully to low");
+    RCLCPP_ERROR(node_->get_logger(), "Graphical Settings was set succesfully to '%s'", flightforge_graphics_settings_enum_.c_str());
   }
 
-  res = ueds_game_controller_->SetMutualDroneVisibility(true);
+  res = ueds_game_controller_->SetMutualDroneVisibility(uavs_mutual_visibility_);
+
   if (res) {
-    /* RCLCPP_INFO(node_->get_logger(), "Mutual Drone Visibility was succesfully set to %i.", uavs_mutual_visibility_); */
     RCLCPP_INFO(node_->get_logger(), "Mutual Drone Visibility was succesfully set to true");
   } else {
     RCLCPP_ERROR(node_->get_logger(), "Set Mutual Drone Visibility was NOT succesfull.");
@@ -978,12 +984,12 @@ void FlightforgeSimulator::timerInit() {
   /*   RCLCPP_ERROR(node_->get_logger(), "SetWeather error"); */
   /* } */
 
-  res = ueds_game_controller_->SetDatetime(12, 0);
+  res = ueds_game_controller_->SetDatetime(daytime_hour_, daytime_minute_);
 
   if (res) {
-    RCLCPP_INFO(node_->get_logger(), "SetDatetime successful.");
+    RCLCPP_INFO(node_->get_logger(), "Setdaytime successful.");
   } else {
-    RCLCPP_ERROR(node_->get_logger(), "SetDatetime error");
+    RCLCPP_ERROR(node_->get_logger(), "Setdaytime error");
   }
 
 

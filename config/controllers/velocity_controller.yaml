@@ -1,9 +1,0 @@
-velocity_controller:
-
-  # PID gains
-  kp: 2.0
-  kd: 0.05
-  ki: 0.01
-
-  # output limit
-  max_acceleration: 4.0 # m/s^2

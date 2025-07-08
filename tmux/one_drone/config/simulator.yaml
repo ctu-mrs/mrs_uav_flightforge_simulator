@@ -10,8 +10,8 @@ graphics_settings: "low"
 
 realtime_factor: 1.0 # [-]
 
-world_name: "warehouse" # works
-# world_name: "forest" # works
+world_name: "valley" # works
+# world_name: "warehouse" # works
 
 # TODO
 # world_name: "cave" # does not work
@@ -19,13 +19,15 @@ world_name: "warehouse" # works
 # world_name: "infinite_forest" # does not work
 # world_name: "forest" # does not work
 
-weather_type: "sunny"
+weather_type: "cloudy"
 
 daytime:
+
   hour: 7
   minute: 30
 
 uav1:
+
   frame: "x500"
   type: "x500"
   spawn:
