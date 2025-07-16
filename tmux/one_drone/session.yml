@@ -54,10 +54,10 @@ windows:
       layout: tiled
       panes:
         - ros2 run rviz2 rviz2 -d ./rviz.rviz --ros-args -p use_sim_time:=true
-  # - rqrReconfigure:
-  #     layaut: tiled
-  #     panes:
-  #       - ros2 run rqt_reconfigure rqt_reconfigure
+  - reconfigure:
+      layaut: tiled
+      panes:
+        - ros2 run rqt_reconfigure rqt_reconfigure
   - layout:
       layout: tiled
       panes:

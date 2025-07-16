@@ -15,6 +15,7 @@
 #include <mrs_lib/scope_timer.h>
 #include <mrs_lib/transform_broadcaster.h>
 #include <mrs_lib/attitude_converter.h>
+#include <mrs_lib/dynparam_mgr.h>
 
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/transform_broadcaster.h>
@@ -237,9 +238,7 @@ private:
   std::shared_ptr<tf2_ros::StaticTransformBroadcaster> static_broadcaster_;
   std::shared_ptr<mrs_lib::TransformBroadcaster>       dynamic_broadcaster_;
 
-  OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
-
-  rcl_interfaces::msg::SetParametersResult callbackParameters(std::vector<rclcpp::Parameter> parameters);
+  std::shared_ptr<mrs_lib::DynparamMgr> dynparam_mgr_;
 
   struct drs_params
   {
@@ -302,6 +301,10 @@ private:
 
   drs_params drs_params_;
   std::mutex mutex_drs_params_;
+
+  void callbackRealtimeFactor(const double& param_value);
+
+  void callbackPause(const bool& param_value);
 
   /*segmentation decode array//{*/
   // clang-format off
@@ -657,65 +660,12 @@ void FlightforgeSimulator::timerInit() {
 
   RCLCPP_INFO(node_->get_logger(), "initializing");
 
-  {
-    auto param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-
-    rcl_interfaces::msg::FloatingPointRange range;
-
-    range.from_value = 0.01;
-    range.to_value   = 10.0;
-
-    param_desc.floating_point_range = {range};
-
-    param_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-
-    node_->declare_parameter("dynamic/realtime_factor", 1.0, param_desc);
-  }
-
-  {
-    auto param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-
-    param_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
-
-    node_->declare_parameter("dynamic/paused", false, param_desc);
-  }
-
-  {
-    auto param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-
-    param_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
-
-    node_->declare_parameter("dynamic/collisions_enabled", false, param_desc);
-  }
-
-  {
-    auto param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-
-    param_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
-
-    node_->declare_parameter("dynamic/collisions_crash", false, param_desc);
-  }
-
-  {
-    auto param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-
-    param_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-
-    rcl_interfaces::msg::FloatingPointRange range;
-
-    range.from_value = 0.0;
-    range.to_value   = 500.0;
-
-    param_desc.floating_point_range = {range};
-
-    node_->declare_parameter("dynamic/collisions_rebounce", 1.0, param_desc);
-  }
-
-
   cbgrp_main_   = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   cbgrp_status_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
   mrs_lib::ParamLoader param_loader(node_, node_->get_name());
+
+  dynparam_mgr_ = std::make_shared<mrs_lib::DynparamMgr>(node_, mutex_drs_params_);
 
   // load custom config
 
@@ -725,6 +675,7 @@ void FlightforgeSimulator::timerInit() {
   if (custom_config_path != "") {
     RCLCPP_INFO(node_->get_logger(), "loading custom config '%s", custom_config_path.c_str());
     param_loader.addYamlFile(custom_config_path);
+    dynparam_mgr_->get_param_provider().addYamlFile(custom_config_path);
   }
 
   // load other configs
@@ -735,11 +686,13 @@ void FlightforgeSimulator::timerInit() {
   for (auto config_file : config_files) {
     RCLCPP_INFO(node_->get_logger(), "loading config file '%s'", config_file.c_str());
     param_loader.addYamlFile(config_file);
+    dynparam_mgr_->get_param_provider().addYamlFile(config_file);
   }
 
-  param_loader.loadParam("simulation_rate", _simulation_rate_);
-  param_loader.loadParam("dynamic_rtf", drs_params_.dynamic_rtf);
-  param_loader.loadParam("clock_rate", _clock_rate_);
+  std::string yaml_prefix = "mrs_uav_flightforge_simulator/";
+
+  param_loader.loadParam(yaml_prefix + "simulation_rate", _simulation_rate_);
+  param_loader.loadParam(yaml_prefix + "clock_rate", _clock_rate_);
 
   if (_clock_rate_ < _simulation_rate_) {
     RCLCPP_ERROR(node_->get_logger(), "clock_rate (%.2f Hz) should be higher than simulation rate (%.2f Hz)!", _clock_rate_, _simulation_rate_);
@@ -747,22 +700,24 @@ void FlightforgeSimulator::timerInit() {
     exit(1);
   }
 
-  param_loader.loadParam("realtime_factor", drs_params_.realtime_factor);
-  node_->set_parameter(rclcpp::Parameter("dynamic/realtime_factor", drs_params_.realtime_factor));
+  dynparam_mgr_->register_param(yaml_prefix + "realtime_factor", &drs_params_.realtime_factor, mrs_lib::DynparamMgr::range_t<double>(0.01, 10), (std::function<void(const double&)>)std::bind(&FlightforgeSimulator::callbackRealtimeFactor, this, std::placeholders::_1));
 
-  param_loader.loadParam("collisions/enabled", drs_params_.collisions_enabled);
-  node_->set_parameter(rclcpp::Parameter("dynamic/collisions_enabled", drs_params_.collisions_enabled));
+  dynparam_mgr_->register_param(yaml_prefix + "dynamic_rtf", &drs_params_.dynamic_rtf);
 
-  param_loader.loadParam("collisions/crash", drs_params_.collisions_crash);
-  node_->set_parameter(rclcpp::Parameter("dynamic/collisions_crash", drs_params_.collisions_crash));
+  dynparam_mgr_->register_param(yaml_prefix + "collisions/enabled", &drs_params_.collisions_enabled);
 
-  param_loader.loadParam("collisions/rebounce", drs_params_.collisions_rebounce);
-  node_->set_parameter(rclcpp::Parameter("dynamic/collisions_rebounce", drs_params_.collisions_rebounce));
+  dynparam_mgr_->register_param(yaml_prefix + "collisions/crash", &drs_params_.collisions_crash);
+
+  dynparam_mgr_->register_param(yaml_prefix + "collisions/crash", &drs_params_.collisions_crash);
+
+  dynparam_mgr_->register_param(yaml_prefix + "collisions/rebounce", &drs_params_.collisions_rebounce, mrs_lib::DynparamMgr::range_t<double>(0.1, 1000));
+
+  dynparam_mgr_->register_param(yaml_prefix + "paused", &drs_params_.paused, false, (std::function<void(const bool&)>)std::bind(&FlightforgeSimulator::callbackPause, this, std::placeholders::_1));
 
   param_loader.loadParam("frames/world/name", _world_frame_name_);
 
   bool sim_time_from_wall_time;
-  param_loader.loadParam("sim_time_from_wall_time", sim_time_from_wall_time);
+  param_loader.loadParam(yaml_prefix + "sim_time_from_wall_time", sim_time_from_wall_time);
 
   if (sim_time_from_wall_time) {
     sim_time_       = clock_->now();
@@ -772,97 +727,97 @@ void FlightforgeSimulator::timerInit() {
     last_step_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
 
-  param_loader.loadParam("sensors/rangefinder/enabled", drs_params_.rangefinder_enabled);
-  param_loader.loadParam("sensors/rangefinder/rate", drs_params_.rangefinder_rate);
+  param_loader.loadParam(yaml_prefix + "sensors/rangefinder/enabled", drs_params_.rangefinder_enabled);
+  param_loader.loadParam(yaml_prefix + "sensors/rangefinder/rate", drs_params_.rangefinder_rate);
 
-  param_loader.loadParam("sensors/lidar/enabled", drs_params_.lidar_enabled);
-  param_loader.loadParam("sensors/lidar/rate", drs_params_.lidar_rate);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/enabled", drs_params_.lidar_enabled);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/rate", drs_params_.lidar_rate);
 
-  param_loader.loadParam("sensors/lidar/horizontal_fov_left", lidar_horizontal_fov_left_);
-  param_loader.loadParam("sensors/lidar/horizontal_fov_right", lidar_horizontal_fov_right_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/horizontal_fov_left", lidar_horizontal_fov_left_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/horizontal_fov_right", lidar_horizontal_fov_right_);
 
-  param_loader.loadParam("sensors/lidar/vertical_fov_up", lidar_vertical_fov_up_);
-  param_loader.loadParam("sensors/lidar/vertical_fov_down", lidar_vertical_fov_down_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/vertical_fov_up", lidar_vertical_fov_up_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/vertical_fov_down", lidar_vertical_fov_down_);
 
-  param_loader.loadParam("sensors/lidar/horizontal_rays", lidar_horizontal_rays_);
-  param_loader.loadParam("sensors/lidar/vertical_rays", lidar_vertical_rays_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/horizontal_rays", lidar_horizontal_rays_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/vertical_rays", lidar_vertical_rays_);
 
-  param_loader.loadParam("sensors/lidar/rotation_pitch", lidar_rotation_pitch_);
-  param_loader.loadParam("sensors/lidar/rotation_roll", lidar_rotation_roll_);
-  param_loader.loadParam("sensors/lidar/rotation_yaw", lidar_rotation_yaw_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/rotation_pitch", lidar_rotation_pitch_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/rotation_roll", lidar_rotation_roll_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/rotation_yaw", lidar_rotation_yaw_);
 
-  param_loader.loadParam("sensors/lidar/beam_length", lidar_beam_length_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/beam_length", lidar_beam_length_);
 
-  param_loader.loadParam("sensors/lidar/noise/enabled", drs_params_.lidar_noise_enabled);
-  param_loader.loadParam("sensors/lidar/noise/std_at_1m", drs_params_.lidar_std_at_1m);
-  param_loader.loadParam("sensors/lidar/noise/std_slope", drs_params_.lidar_std_slope);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/noise/enabled", drs_params_.lidar_noise_enabled);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/noise/std_at_1m", drs_params_.lidar_std_at_1m);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/noise/std_slope", drs_params_.lidar_std_slope);
 
-  param_loader.loadParam("sensors/lidar/lidar_segmented/enabled", drs_params_.lidar_seg_enabled);
-  param_loader.loadParam("sensors/lidar/lidar_segmented/rate", drs_params_.lidar_seg_rate);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_segmented/enabled", drs_params_.lidar_seg_enabled);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_segmented/rate", drs_params_.lidar_seg_rate);
 
-  param_loader.loadParam("sensors/lidar/lidar_intensity/enabled", drs_params_.lidar_int_enabled);
-  param_loader.loadParam("sensors/lidar/lidar_intensity/rate", drs_params_.lidar_int_rate);
-  param_loader.loadParam("sensors/lidar/lidar_intensity/values/grass", drs_params_.lidar_int_value_grass);
-  param_loader.loadParam("sensors/lidar/lidar_intensity/values/road", drs_params_.lidar_int_value_road);
-  param_loader.loadParam("sensors/lidar/lidar_intensity/values/tree", drs_params_.lidar_int_value_tree);
-  param_loader.loadParam("sensors/lidar/lidar_intensity/values/building", drs_params_.lidar_int_value_building);
-  param_loader.loadParam("sensors/lidar/lidar_intensity/values/fence", drs_params_.lidar_int_value_fence);
-  param_loader.loadParam("sensors/lidar/lidar_intensity/values/dirt_road", drs_params_.lidar_int_value_dirt_road);
-  param_loader.loadParam("sensors/lidar/lidar_intensity/values/other", drs_params_.lidar_int_value_other);
-  param_loader.loadParam("sensors/lidar/lidar_intensity/noise/enabled", drs_params_.lidar_int_noise_enabled);
-  param_loader.loadParam("sensors/lidar/lidar_intensity/noise/std_at_1m", drs_params_.lidar_int_std_at_1m);
-  param_loader.loadParam("sensors/lidar/lidar_intensity/noise/std_slope", drs_params_.lidar_int_std_slope);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/enabled", drs_params_.lidar_int_enabled);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/rate", drs_params_.lidar_int_rate);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/grass", drs_params_.lidar_int_value_grass);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/road", drs_params_.lidar_int_value_road);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/tree", drs_params_.lidar_int_value_tree);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/building", drs_params_.lidar_int_value_building);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/fence", drs_params_.lidar_int_value_fence);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/dirt_road", drs_params_.lidar_int_value_dirt_road);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/other", drs_params_.lidar_int_value_other);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/noise/enabled", drs_params_.lidar_int_noise_enabled);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/noise/std_at_1m", drs_params_.lidar_int_std_at_1m);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/noise/std_slope", drs_params_.lidar_int_std_slope);
 
-  param_loader.loadParam("sensors/rgb/enabled", drs_params_.rgb_enabled);
-  param_loader.loadParam("sensors/rgb/rate", drs_params_.rgb_rate);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/enabled", drs_params_.rgb_enabled);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/rate", drs_params_.rgb_rate);
 
-  param_loader.loadParam("sensors/rgb/width", rgb_width_);
-  param_loader.loadParam("sensors/rgb/height", rgb_height_);
-  param_loader.loadParam("sensors/rgb/fov", rgb_fov_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/width", rgb_width_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/height", rgb_height_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/fov", rgb_fov_);
 
-  param_loader.loadParam("sensors/rgb/offset_x", rgb_offset_x_);
-  param_loader.loadParam("sensors/rgb/offset_y", rgb_offset_y_);
-  param_loader.loadParam("sensors/rgb/offset_z", rgb_offset_z_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/offset_x", rgb_offset_x_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/offset_y", rgb_offset_y_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/offset_z", rgb_offset_z_);
 
-  param_loader.loadParam("sensors/rgb/rotation_pitch", rgb_rotation_pitch_);
-  param_loader.loadParam("sensors/rgb/rotation_roll", rgb_rotation_roll_);
-  param_loader.loadParam("sensors/rgb/rotation_yaw", rgb_rotation_yaw_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/rotation_pitch", rgb_rotation_pitch_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/rotation_roll", rgb_rotation_roll_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/rotation_yaw", rgb_rotation_yaw_);
 
-  param_loader.loadParam("sensors/rgb/enable_hdr", drs_params_.rgb_enable_hdr);
-  param_loader.loadParam("sensors/rgb/enable_temporal_aa", drs_params_.rgb_enable_temporal_aa);
-  param_loader.loadParam("sensors/rgb/enable_raytracing", drs_params_.rgb_enable_raytracing);
-  param_loader.loadParam("sensors/rgb/enable_motion_blur", drs_params_.rgb_enable_motion_blur);
-  param_loader.loadParam("sensors/rgb/motion_blur_amount", drs_params_.rgb_motion_blur_amount);
-  param_loader.loadParam("sensors/rgb/motion_blur_distortion", drs_params_.rgb_motion_blur_distortion);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/enable_hdr", drs_params_.rgb_enable_hdr);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/enable_temporal_aa", drs_params_.rgb_enable_temporal_aa);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/enable_raytracing", drs_params_.rgb_enable_raytracing);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/enable_motion_blur", drs_params_.rgb_enable_motion_blur);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/motion_blur_amount", drs_params_.rgb_motion_blur_amount);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/motion_blur_distortion", drs_params_.rgb_motion_blur_distortion);
 
-  param_loader.loadParam("sensors/rgb/rgb_segmented/enabled", drs_params_.rgb_segmented_enabled);
-  param_loader.loadParam("sensors/rgb/rgb_segmented/rate", drs_params_.rgb_segmented_rate);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/rgb_segmented/enabled", drs_params_.rgb_segmented_enabled);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/rgb_segmented/rate", drs_params_.rgb_segmented_rate);
 
-  param_loader.loadParam("sensors/stereo/enabled", drs_params_.stereo_enabled);
-  param_loader.loadParam("sensors/stereo/rate", drs_params_.stereo_rate);
-  param_loader.loadParam("sensors/stereo/enable_hdr", drs_params_.stereo_enable_hdr);
-  param_loader.loadParam("sensors/stereo/enable_temporal_aa", drs_params_.stereo_enable_temporal_aa);
-  param_loader.loadParam("sensors/stereo/enable_raytracing", drs_params_.stereo_enable_raytracing);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/enabled", drs_params_.stereo_enabled);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/rate", drs_params_.stereo_rate);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/enable_hdr", drs_params_.stereo_enable_hdr);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/enable_temporal_aa", drs_params_.stereo_enable_temporal_aa);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/enable_raytracing", drs_params_.stereo_enable_raytracing);
 
-  param_loader.loadParam("sensors/stereo/baseline", stereo_baseline_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/baseline", stereo_baseline_);
 
-  param_loader.loadParam("sensors/stereo/width", stereo_width_);
-  param_loader.loadParam("sensors/stereo/height", stereo_height_);
-  param_loader.loadParam("sensors/stereo/fov", stereo_fov_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/width", stereo_width_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/height", stereo_height_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/fov", stereo_fov_);
 
-  param_loader.loadParam("sensors/stereo/offset_x", stereo_offset_x_);
-  param_loader.loadParam("sensors/stereo/offset_y", stereo_offset_y_);
-  param_loader.loadParam("sensors/stereo/offset_z", stereo_offset_z_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/offset_x", stereo_offset_x_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/offset_y", stereo_offset_y_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/offset_z", stereo_offset_z_);
 
-  param_loader.loadParam("sensors/stereo/rotation_pitch", stereo_rotation_pitch_);
-  param_loader.loadParam("sensors/stereo/rotation_roll", stereo_rotation_roll_);
-  param_loader.loadParam("sensors/stereo/rotation_yaw", stereo_rotation_yaw_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation_pitch", stereo_rotation_pitch_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation_roll", stereo_rotation_roll_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation_yaw", stereo_rotation_yaw_);
 
-  param_loader.loadParam("graphics_settings", flightforge_graphics_settings_enum_);
-  param_loader.loadParam("uavs_mutual_visibility", uavs_mutual_visibility_);
-  param_loader.loadParam("daytime/hour", daytime_hour_);
-  param_loader.loadParam("daytime/minute", daytime_minute_);
-  param_loader.loadParam("world_name", flightforge_world_level_name_enum_);
+  param_loader.loadParam(yaml_prefix + "graphics_settings", flightforge_graphics_settings_enum_);
+  param_loader.loadParam(yaml_prefix + "uavs_mutual_visibility", uavs_mutual_visibility_);
+  param_loader.loadParam(yaml_prefix + "daytime/hour", daytime_hour_);
+  param_loader.loadParam(yaml_prefix + "daytime/minute", daytime_minute_);
+  param_loader.loadParam(yaml_prefix + "world_name", flightforge_world_level_name_enum_);
 
   if (!param_loader.loadedSuccessfully()) {
     RCLCPP_ERROR(node_->get_logger(), "could not load all parameters!");
@@ -1180,10 +1135,6 @@ void FlightforgeSimulator::timerInit() {
     rclcpp::shutdown();
     exit(1);
   }
-
-  // | ---------------- bind param server callback -------------- |
-
-  param_callback_handle_ = node_->add_on_set_parameters_callback(std::bind(&FlightforgeSimulator::callbackParameters, this, std::placeholders::_1));
 
   // | ----------------------- publishers ----------------------- |
 
@@ -2112,73 +2063,45 @@ void FlightforgeSimulator::timerDepth() {
 
 // | ------------------------ callbacks ----------------------- |
 
-/* callbackParameters() //{ */
+/* dynamic parameter callbacks //{ */
 
-rcl_interfaces::msg::SetParametersResult FlightforgeSimulator::callbackParameters(std::vector<rclcpp::Parameter> parameters) {
+/* callbackRealtimeFactor() //{ */
 
-  rcl_interfaces::msg::SetParametersResult result;
+void FlightforgeSimulator::callbackRealtimeFactor(const double& param_value) {
 
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
+  timer_main_->cancel();
 
-  // Note that setting a parameter to a nonsensical value (such as setting the `param_namespace.floating_number` parameter to `hello`)
-  // doesn't have any effect - it doesn't even call this callback.
-  for (auto& param : parameters) {
+  timer_main_ = create_wall_timer(std::chrono::duration<double>(1.0 / (_clock_rate_ * param_value)), std::bind(&FlightforgeSimulator::timerMain, this), cbgrp_main_);
 
-    RCLCPP_INFO_STREAM(node_->get_logger(), "got parameter: '" << param.get_name() << "' with value '" << param.value_to_string() << "'");
-
-    if (param.get_name() == "dynamic/paused") {
-
-      if (drs_params.paused && !param.as_bool()) {
-
-        timer_main_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / (_clock_rate_ * drs_params.realtime_factor)), std::bind(&FlightforgeSimulator::timerMain, this), cbgrp_main_);
-
-        timer_status_ = node_->create_wall_timer(std::chrono::duration<double>(1.0), std::bind(&FlightforgeSimulator::timerStatus, this), cbgrp_status_);
-
-      } else if (!drs_params.paused && param.as_bool()) {
-
-        timer_main_->cancel();
-        timer_status_->cancel();
-      }
-
-      drs_params.paused = param.as_bool();
-
-    } else if (param.get_name() == "dynamic/realtime_factor") {
-
-      drs_params.realtime_factor = param.as_double();
-
-      timer_main_->cancel();
-
-      timer_main_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / (_clock_rate_ * drs_params.realtime_factor)), std::bind(&FlightforgeSimulator::timerMain, this), cbgrp_main_);
-
-    } else if (param.get_name() == "dynamic/collisions_crash") {
-
-      drs_params.collisions_crash = param.as_bool();
-
-    } else if (param.get_name() == "dynamic/collisions_enabled") {
-
-      drs_params.collisions_enabled = param.as_bool();
-
-    } else if (param.get_name() == "dynamic/collisions_rebounce") {
-
-      drs_params.collisions_rebounce = param.as_double();
-
-    } else {
-
-      RCLCPP_WARN_STREAM(node_->get_logger(), "parameter: '" << param.get_name() << "' is not dynamically reconfigurable!");
-      result.successful = false;
-      result.reason     = "Parameter '" + param.get_name() + "' is not dynamically reconfigurable!";
-      return result;
-    }
-  }
-
-  RCLCPP_INFO(node_->get_logger(), "params updated");
-  result.successful = true;
-  result.reason     = "OK";
-
-  mrs_lib::set_mutexed(mutex_drs_params_, drs_params, drs_params_);
-
-  return result;
+  RCLCPP_INFO(get_logger(), "desired realtime factor updated to %.3f", param_value);
 }
+
+//}
+
+/* callbackPause() //{ */
+
+void FlightforgeSimulator::callbackPause(const bool& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackPause()");
+
+  if (param_value) {
+
+    timer_main_->cancel();
+    timer_status_->cancel();
+
+    RCLCPP_INFO(get_logger(), "paused");
+
+  } else {
+
+    timer_main_ = create_wall_timer(std::chrono::duration<double>(1.0 / (_clock_rate_ * drs_params_.realtime_factor)), std::bind(&FlightforgeSimulator::timerMain, this), cbgrp_main_);
+
+    timer_status_ = create_wall_timer(std::chrono::duration<double>(1.0), std::bind(&FlightforgeSimulator::timerStatus, this), cbgrp_status_);
+
+    RCLCPP_INFO(get_logger(), "unpaused");
+  }
+}
+
+//}
 
 //}
 

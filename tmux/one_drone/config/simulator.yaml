@@ -6,26 +6,6 @@ frames:
   fcu:
     publish_tf: false
 
-graphics_settings: "low"
-
-realtime_factor: 1.0 # [-]
-
-world_name: "valley" # works
-# world_name: "warehouse" # works
-
-# TODO
-# world_name: "cave" # does not work
-# world_name: "dead_spruce_forest" # does not work
-# world_name: "infinite_forest" # does not work
-# world_name: "forest" # does not work
-
-weather_type: "cloudy"
-
-daytime:
-
-  hour: 7
-  minute: 30
-
 uav1:
 
   frame: "x500"
@@ -36,34 +16,56 @@ uav1:
     z: 0.0
     heading: 0.0
 
-sensors:
+mrs_uav_flightforge_simulator:
 
-  lidar:
+  sensors:
 
-    enabled: true
-    horizontal_rays: 128 # [-]
-    vertical_rays: 64 # [-]
-    offset_x: 0.0 # [m]
-    offset_y: 0.0 # [m]
-    offset_z: 0.1 # [m]
-    rotation_pitch: 0.0 # [deg]
-    rotation_roll: 0.0 # [deg]
-    rotation_yaw: 0.0 # [deg]
+    lidar:
 
-    lidar_segmented:
+      enabled: true
+      horizontal_rays: 128 # [-]
+      vertical_rays: 64 # [-]
+      offset_x: 0.0 # [m]
+      offset_y: 0.0 # [m]
+      offset_z: 0.1 # [m]
+      rotation_pitch: 0.0 # [deg]
+      rotation_roll: 0.0 # [deg]
+      rotation_yaw: 0.0 # [deg]
+
+      lidar_segmented:
+        enabled: false
+        rate: 10.0 # [Hz]
+
+    rgb:
+
+      enabled: true
+
+      rgb_segmented:
+        enabled: false
+        rate: 10.0 # [Hz]
+
+      depth:
+        enabled: false
+
+    stereo:
       enabled: false
-      rate: 10.0 # [Hz]
 
-  rgb:
+  graphics_settings: "low"
 
-    enabled: true
+  realtime_factor: 1.0 # [-]
 
-    rgb_segmented:
-      enabled: false
-      rate: 10.0 # [Hz]
+  world_name: "valley" # works
+  # world_name: "warehouse" # works
 
-    depth:
-      enabled: false
+  # TODO
+  # world_name: "cave" # does not work
+  # world_name: "dead_spruce_forest" # does not work
+  # world_name: "infinite_forest" # does not work
+  # world_name: "forest" # does not work
 
-  stereo:
-    enabled: false
+  weather_type: "cloudy"
+
+  daytime:
+
+    hour: 7
+    minute: 30
