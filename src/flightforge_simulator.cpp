@@ -667,6 +667,8 @@ void FlightforgeSimulator::timerInit() {
 
   dynparam_mgr_ = std::make_shared<mrs_lib::DynparamMgr>(node_, mutex_drs_params_);
 
+  // | ----------------------- load files ----------------------- |
+
   // load custom config
 
   std::string custom_config_path;
@@ -675,7 +677,6 @@ void FlightforgeSimulator::timerInit() {
   if (custom_config_path != "") {
     RCLCPP_INFO(node_->get_logger(), "loading custom config '%s", custom_config_path.c_str());
     param_loader.addYamlFile(custom_config_path);
-    dynparam_mgr_->get_param_provider().addYamlFile(custom_config_path);
   }
 
   // load other configs
@@ -686,8 +687,11 @@ void FlightforgeSimulator::timerInit() {
   for (auto config_file : config_files) {
     RCLCPP_INFO(node_->get_logger(), "loading config file '%s'", config_file.c_str());
     param_loader.addYamlFile(config_file);
-    dynparam_mgr_->get_param_provider().addYamlFile(config_file);
   }
+
+  dynparam_mgr_->get_param_provider().copyYamls(param_loader.getParamProvider());
+
+  // | ----------------------- load params ---------------------- |
 
   std::string yaml_prefix = "mrs_uav_flightforge_simulator/";
 
@@ -819,7 +823,7 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "daytime/minute", daytime_minute_);
   param_loader.loadParam(yaml_prefix + "world_name", flightforge_world_level_name_enum_);
 
-  if (!param_loader.loadedSuccessfully()) {
+  if (!param_loader.loadedSuccessfully() || !dynparam_mgr_->loaded_successfully()) {
     RCLCPP_ERROR(node_->get_logger(), "could not load all parameters!");
     rclcpp::shutdown();
     exit(1);
