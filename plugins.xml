@@ -1,5 +1,5 @@
-<library path="MrsUavFlightforgeSimulation_HwApiPlugin">
+<library path="MrsUavFlightforgeSimulator_HwApiPlugin">
   <class type="mrs_uav_flightforge_hw_api_plugin::Api" base_class_type="mrs_uav_hw_api::MrsUavHwApi">
-    <description>MRS FlightForge Simulation HW Api</description>
+    <description>MRS FlightForge Simulator HW Api</description>
   </class>
 </library>
