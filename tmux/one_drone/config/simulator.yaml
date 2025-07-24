@@ -36,6 +36,10 @@ mrs_uav_flightforge_simulator:
         enabled: false
         rate: 10.0 # [Hz]
 
+      lidar_intensity:
+        enabled: false
+        rate: 10.0 # [Hz]
+
     rgb:
 
       enabled: true

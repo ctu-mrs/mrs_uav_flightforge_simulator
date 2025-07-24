@@ -182,8 +182,6 @@ private:
 
   // | ------------------------- methods ------------------------ |
 
-  void handleCollisions(void);
-
   void publishPoses(void);
 
   // | ------------------------- FlightForge methods ------------------------ |
@@ -303,8 +301,8 @@ private:
   std::mutex mutex_drs_params_;
 
   void callbackRealtimeFactor(const double& param_value);
-
   void callbackPause(const bool& param_value);
+  void callbackLidarRate(const double& param_value);
 
   /*segmentation decode array//{*/
   // clang-format off
@@ -735,7 +733,7 @@ void FlightforgeSimulator::timerInit() {
   dynparam_mgr_->register_param(yaml_prefix + "sensors/rangefinder/rate", &drs_params_.rangefinder_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 100.0));
 
   dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/enabled", &drs_params_.lidar_enabled);
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/rate", &drs_params_.lidar_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 20.0));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/rate", &drs_params_.lidar_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 20.0), (std::function<void(const double&)>)std::bind(&FlightforgeSimulator::callbackLidarRate, this, std::placeholders::_1));
 
   param_loader.loadParam(yaml_prefix + "sensors/lidar/horizontal_fov_left", lidar_horizontal_fov_left_);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/horizontal_fov_right", lidar_horizontal_fov_right_);
@@ -1289,8 +1287,6 @@ void FlightforgeSimulator::timerMain() {
 
     publishPoses();
 
-    /* handleCollisions(); */
-
     last_step_time_ = sim_time;
   }
 }
@@ -1661,8 +1657,12 @@ void FlightforgeSimulator::timerSegLidar() {
 
     sensor_msgs::msg::PointCloud2 pcl_msg;
     pcl::toROSMsg(pcl_cloud, pcl_msg);
-    auto last_step_time     = mrs_lib::get_mutexed(mutex_sim_time_, last_step_time_);
-    pcl_msg.header.stamp    = last_step_time;
+
+    auto last_step_time = mrs_lib::get_mutexed(mutex_sim_time_, last_step_time_);
+
+    // TODO we should publish the actual stamp from the unreal sim (transformed to the simtime)
+    pcl_msg.header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+
     pcl_msg.header.frame_id = "uav" + std::to_string(i + 1) + "/lidar";
     ph_seg_lidars_[i].publish(pcl_msg);
   }
@@ -1682,7 +1682,7 @@ void FlightforgeSimulator::timerIntLidar() {
 
   auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
 
-  if (!drs_params_.lidar_enabled) {
+  if (!drs_params_.lidar_int_enabled) {
     return;
   }
 
@@ -1690,18 +1690,18 @@ void FlightforgeSimulator::timerIntLidar() {
 
     // mrs_multirotor_simulator::MultirotorModel::State state = uavs_[i]->getState();
 
-    bool                                   res;
-    std::vector<ueds_connector::LidarData> lidarData;
-    ueds_connector::Coordinates            start;
+    bool                                      res;
+    std::vector<ueds_connector::LidarIntData> lidarData;
+    ueds_connector::Coordinates               start;
 
     {
       std::scoped_lock lock(mutex_flightforge_);
 
-      std::tie(res, lidarData, start) = ueds_connectors_[i]->GetLidarData();
+      std::tie(res, lidarData, start) = ueds_connectors_[i]->GetLidarIntData();
     }
 
     if (!res) {
-      RCLCPP_ERROR_THROTTLE(node_->get_logger(), *node_->get_clock(), 1e9, "[uav%d] - ERROR getLidarData", int(i) + 1);
+      RCLCPP_ERROR_THROTTLE(node_->get_logger(), *node_->get_clock(), 1e9, "[uav%d] - ERROR getLidarIntData", int(i) + 1);
       continue;
     }
 
@@ -1711,8 +1711,11 @@ void FlightforgeSimulator::timerIntLidar() {
     sensor_msgs::PointCloud2Modifier modifier(pcl_msg);
     modifier.setPointCloud2Fields(4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1, sensor_msgs::msg::PointField::FLOAT32, "z", 1, sensor_msgs::msg::PointField::FLOAT32, "intensity", 1, sensor_msgs::msg::PointField::FLOAT32);
     // Msg header
-    auto last_step_time     = mrs_lib::get_mutexed(mutex_sim_time_, last_step_time_);
-    pcl_msg.header.stamp    = last_step_time;
+    auto last_step_time = mrs_lib::get_mutexed(mutex_sim_time_, last_step_time_);
+
+    // TODO we should publish the actual stamp from the unreal sim (transformed to the simtime)
+    pcl_msg.header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+
     pcl_msg.header.frame_id = "uav" + std::to_string(i + 1) + "/lidar";
     pcl_msg.height          = lidar_vertical_rays_;
     pcl_msg.width           = lidar_horizontal_rays_;
@@ -1728,7 +1731,7 @@ void FlightforgeSimulator::timerIntLidar() {
     sensor_msgs::PointCloud2Iterator<float> iterZ(pcl_msg, "z");
     sensor_msgs::PointCloud2Iterator<float> iterIntensity(pcl_msg, "intensity");
 
-    for (const ueds_connector::LidarData& ray : lidarData) {
+    for (const ueds_connector::LidarIntData& ray : lidarData) {
 
       tf2::Vector3 dir = tf2::Vector3(ray.directionX, ray.directionY, ray.directionZ);
 
@@ -1756,7 +1759,7 @@ void FlightforgeSimulator::timerIntLidar() {
       ++iterIntensity;
     }
 
-    ph_lidars_[i].publish(pcl_msg);
+    ph_int_lidars_[i].publish(pcl_msg);
   }
 }
 
@@ -2107,85 +2110,26 @@ void FlightforgeSimulator::callbackPause(const bool& param_value) {
 
 //}
 
+/* callbackLidarRate() //{ */
+
+void FlightforgeSimulator::callbackLidarRate([[maybe_unused]] const double& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackLidarRate()");
+
+  timer_lidar_->stop();
+
+  timer_lidar_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
+
+  timer_lidar_->start();
+
+  RCLCPP_INFO(get_logger(), "lidar rate updated to %.2f Hz", param_value);
+}
+
+//}
+
 //}
 
 // | ------------------------ routines ------------------------ |
-
-/* /1* handleCollisions() //{ *1/ */
-
-/* void FlightforgeSimulator::handleCollisions(void) { */
-
-/*   auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_); */
-
-/*   if (!(drs_params.collisions_crash || drs_params.collisions_enabled)) { */
-/*     return; */
-/*   } */
-
-/*   std::vector<Eigen::VectorXd> poses; */
-
-/*   for (size_t i = 0; i < uavs_.size(); i++) { */
-/*     poses.push_back(uavs_.at(i)->getPose()); */
-/*   } */
-
-/*   typedef std::vector<Eigen::VectorXd> my_vector_of_vectors_t; */
-
-/*   typedef KDTreeVectorOfVectorsAdaptor<my_vector_of_vectors_t, double> my_kd_tree_t; */
-
-/*   my_kd_tree_t mat_index(3, poses, 10); */
-
-/*   std::vector<nanoflann::ResultItem<int, double>> indices_dists; */
-
-/*   std::vector<Eigen::Vector3d> forces; */
-
-/*   for (size_t i = 0; i < uavs_.size(); i++) { */
-/*     forces.push_back(Eigen::Vector3d::Zero()); */
-/*   } */
-
-/*   for (size_t i = 0; i < uavs_.size(); i++) { */
-
-/*     MultirotorModel::State       state_1  = uavs_.at(i)->getState(); */
-/*     MultirotorModel::ModelParams params_1 = uavs_.at(i)->getParams(); */
-
-/*     nanoflann::RadiusResultSet<double, int> resultSet(3.0, indices_dists); */
-
-/*     mat_index.index->findNeighbors(resultSet, &state_1.x(0)); */
-
-/*     for (size_t j = 0; j < resultSet.m_indices_dists.size(); j++) { */
-
-/*       const size_t idx  = resultSet.m_indices_dists.at(j).first; */
-/*       const double dist = resultSet.m_indices_dists.at(j).second; */
-
-/*       if (idx == i) { */
-/*         continue; */
-/*       } */
-
-/*       MultirotorModel::State       state_2  = uavs_.at(idx)->getState(); */
-/*       MultirotorModel::ModelParams params_2 = uavs_.at(idx)->getParams(); */
-
-/*       const double crit_dist = params_1.arm_length + params_1.prop_radius + params_2.arm_length + params_2.prop_radius; */
-
-/*       const Eigen::Vector3d rel_pos = state_1.x - state_2.x; */
-
-/*       if (dist < crit_dist) { */
-/*         if (drs_params.collisions_crash && !uavs_.at(idx)->hasCrashed()) { */
-
-/*           RCLCPP_WARN(node_->get_logger(), "uav%u crashed", int(idx+1)); */
-
-/*           uavs_.at(idx)->crash(); */
-
-/*         } else { */
-/*           forces.at(i) += drs_params.collisions_rebounce * rel_pos.normalized() * params_1.mass * (params_2.mass / (params_1.mass + params_2.mass)); */
-/*         } */
-/*       } */
-/*     } */
-/*   } */
-
-/*   for (size_t i = 0; i < uavs_.size(); i++) { */
-/*     uavs_.at(i)->applyForce(forces.at(i)); */
-/*   } */
-/* } */
-
-/* //} */
 
 /* publishPoses() //{ */
 
