@@ -21,7 +21,7 @@ def generate_launch_description():
 
     ld = launch.LaunchDescription()
 
-    pkg_name = "mrs_uav_flightforge_simulation"
+    pkg_name = "mrs_uav_flightforge_simulator"
 
     this_pkg_path = get_package_share_directory(pkg_name)
     namespace='hw_api'

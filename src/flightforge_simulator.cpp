@@ -51,7 +51,7 @@
 #include <chrono>
 
 #include <mrs_msgs/srv/float64_srv.hpp>
-#include <mrs_uav_flightforge_simulation/srv/set_orientation.hpp>
+#include <mrs_uav_flightforge_simulator/srv/set_orientation.hpp>
 
 //}
 
@@ -72,7 +72,7 @@ typedef mrs_lib::ThreadTimer TimerType;
 
 //}
 
-namespace mrs_uav_flightforge_simulation
+namespace mrs_uav_flightforge_simulator
 {
 
 /* class FlightforgeSimulator //{ */
@@ -640,7 +640,7 @@ private:
 
 /* FlightforgeSimulator::FlightforgeSimulator() //{ */
 
-FlightforgeSimulator::FlightforgeSimulator(rclcpp::NodeOptions options) : Node("mrs_uav_flightforge_simulation", options) {
+FlightforgeSimulator::FlightforgeSimulator(rclcpp::NodeOptions options) : Node("mrs_uav_flightforge_simulator", options) {
 
   timer_init_ = this->create_wall_timer(std::chrono::duration<double>(0.1s), std::bind(&FlightforgeSimulator::timerInit, this));
 }
@@ -2640,7 +2640,7 @@ void FlightforgeSimulator::fabricateCamInfo(void) {
 
 //}
 
-}  // namespace mrs_uav_flightforge_simulation
+}  // namespace mrs_uav_flightforge_simulator
 
 #include <rclcpp_components/register_node_macro.hpp>
-RCLCPP_COMPONENTS_REGISTER_NODE(mrs_uav_flightforge_simulation::FlightforgeSimulator)
+RCLCPP_COMPONENTS_REGISTER_NODE(mrs_uav_flightforge_simulator::FlightforgeSimulator)

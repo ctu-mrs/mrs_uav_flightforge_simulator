@@ -21,7 +21,7 @@ def generate_launch_description():
 
     ld = launch.LaunchDescription()
 
-    pkg_name = "mrs_uav_flightforge_simulation"
+    pkg_name = "mrs_uav_flightforge_simulator"
 
     pkg_share_path = get_package_share_directory(pkg_name)
 
@@ -102,7 +102,7 @@ def generate_launch_description():
             ComposableNode(
 
                 package=pkg_name,
-                plugin='mrs_uav_flightforge_simulation::FlightforgeSimulator',
+                plugin='mrs_uav_flightforge_simulator::FlightforgeSimulator',
                 namespace='',
                 name='flightforge_simulator',
                 parameters=[

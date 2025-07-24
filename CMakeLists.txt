@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(mrs_uav_flightforge_simulation)
+project(mrs_uav_flightforge_simulator)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 20)
@@ -17,7 +17,7 @@ add_compile_options(-Wno-missing-braces)
 set(USE_ROS_TIMER 0)
 
 if(${USE_ROS_TIMER})
-  MESSAGE(WARNING "[mrs_uav_flightforge_simulation]: Compiling with ROS Timers. This can cause high CPU load in runtime.")
+  MESSAGE(WARNING "[mrs_uav_flightforge_simulator]: Compiling with ROS Timers. This can cause high CPU load in runtime.")
 endif()
 
 if(ENABLE_COVERAGE)
@@ -53,9 +53,9 @@ set(DEPENDENCIES
 )
 
 set(LIBRARIES
-  MrsUavFlightforgeSimulation_FlightforgeConnector
-  MrsUavFlightforgeSimulation_FlightforgeSimulator
-  MrsUavFlightforgeSimulation_HwApiPlugin
+  MrsUavFlightforgeSimulator_FlightforgeConnector
+  MrsUavFlightforgeSimulator_FlightforgeSimulator
+  MrsUavFlightforgeSimulator_HwApiPlugin
 )
 
 foreach(DEP IN LISTS DEPENDENCIES)
@@ -80,7 +80,7 @@ include_directories(
 
 ## | --------------------- FlightForge connector --------------------- |
 
-add_library(MrsUavFlightforgeSimulation_FlightforgeConnector SHARED
+add_library(MrsUavFlightforgeSimulator_FlightforgeConnector SHARED
   src/flight_forge_connector/socket_client.cpp
   src/flight_forge_connector/flight_forge_connector.cpp
   src/flight_forge_connector/game_mode_controller.cpp
@@ -88,34 +88,34 @@ add_library(MrsUavFlightforgeSimulation_FlightforgeConnector SHARED
 
 ## | ------------------------ FlightForge Simulator ----------------------- |
 
-add_library(MrsUavFlightforgeSimulation_FlightforgeSimulator SHARED
+add_library(MrsUavFlightforgeSimulator_FlightforgeSimulator SHARED
   src/flightforge_simulator.cpp
 )
 
-target_link_libraries(MrsUavFlightforgeSimulation_FlightforgeSimulator
-  MrsUavFlightforgeSimulation_FlightforgeConnector
+target_link_libraries(MrsUavFlightforgeSimulator_FlightforgeSimulator
+  MrsUavFlightforgeSimulator_FlightforgeConnector
   ${PROJECT_NAME}__rosidl_generator_cpp
 )
 
-ament_target_dependencies(MrsUavFlightforgeSimulation_FlightforgeSimulator
+ament_target_dependencies(MrsUavFlightforgeSimulator_FlightforgeSimulator
   ${DEPENDENCIES}
 )
 
-rclcpp_components_register_nodes(MrsUavFlightforgeSimulation_FlightforgeSimulator PLUGIN "mrs_uav_flightforge_simulation::FlightforgeSimulator" EXECUTABLE MrsUavFlightforgeSimulation_FlightforgeSimulator)
+rclcpp_components_register_nodes(MrsUavFlightforgeSimulator_FlightforgeSimulator PLUGIN "mrs_uav_flightforge_simulator::FlightforgeSimulator" EXECUTABLE MrsUavFlightforgeSimulator_FlightforgeSimulator)
 
-target_compile_definitions(MrsUavFlightforgeSimulation_FlightforgeSimulator PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER})
+target_compile_definitions(MrsUavFlightforgeSimulator_FlightforgeSimulator PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER})
 
 ## | ---------------------- HW Api Plugin --------------------- |
 
-add_library(MrsUavFlightforgeSimulation_HwApiPlugin SHARED
+add_library(MrsUavFlightforgeSimulator_HwApiPlugin SHARED
   src/hw_api_plugin.cpp
 )
 
-ament_target_dependencies(MrsUavFlightforgeSimulation_HwApiPlugin
+ament_target_dependencies(MrsUavFlightforgeSimulator_HwApiPlugin
   ${DEPENDENCIES}
 )
 
-target_compile_definitions(MrsUavFlightforgeSimulation_HwApiPlugin PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER})
+target_compile_definitions(MrsUavFlightforgeSimulator_HwApiPlugin PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER})
 
 ## --------------------------------------------------------------
 ## |                       Export plugins                       |

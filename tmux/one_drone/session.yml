@@ -15,11 +15,11 @@ windows:
   - simulator:
       layout: tiled
       panes:
-        - ros2 launch mrs_uav_flightforge_simulation flightforge_simulator.py custom_config:=./config/simulator.yaml
+        - ros2 launch mrs_uav_flightforge_simulator flightforge_simulator.py custom_config:=./config/simulator.yaml
   - hw_api:
       layout: tiled
       panes:
-        - ros2 launch mrs_uav_flightforge_simulation hw_api.py
+        - ros2 launch mrs_uav_flightforge_simulator hw_api.py
   - status:
       layout: tiled
       panes:
@@ -39,11 +39,11 @@ windows:
   # - stereo:
   #     layout: tiled
   #     panes:
-  #       - ros2 launch mrs_uav_unreal_simulation stereo_image_proc.launch.py
+  #       - ros2 launch mrs_uav_unreal_simulator stereo_image_proc.launch.py
   # - mapping:
   #     layout: tiled
   #     panes:
-  #       - ros2 launch mrs_uav_unreal_simulation mapplan.launch.py \
+  #       - ros2 launch mrs_uav_unreal_simulator mapplan.launch.py \
   #         config_octomap_server:=./config/octomap_server.yaml \
   #         config_octomap_planner:=./config/octomap_planner.yaml
   - goto:
