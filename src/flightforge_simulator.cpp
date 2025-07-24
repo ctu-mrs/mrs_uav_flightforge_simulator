@@ -731,11 +731,11 @@ void FlightforgeSimulator::timerInit() {
     last_step_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
 
-  param_loader.loadParam(yaml_prefix + "sensors/rangefinder/enabled", drs_params_.rangefinder_enabled);
-  param_loader.loadParam(yaml_prefix + "sensors/rangefinder/rate", drs_params_.rangefinder_rate);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rangefinder/enabled", &drs_params_.rangefinder_enabled);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rangefinder/rate", &drs_params_.rangefinder_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 100.0));
 
-  param_loader.loadParam(yaml_prefix + "sensors/lidar/enabled", drs_params_.lidar_enabled);
-  param_loader.loadParam(yaml_prefix + "sensors/lidar/rate", drs_params_.lidar_rate);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/enabled", &drs_params_.lidar_enabled);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/rate", &drs_params_.lidar_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 20.0));
 
   param_loader.loadParam(yaml_prefix + "sensors/lidar/horizontal_fov_left", lidar_horizontal_fov_left_);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/horizontal_fov_right", lidar_horizontal_fov_right_);
@@ -752,15 +752,15 @@ void FlightforgeSimulator::timerInit() {
 
   param_loader.loadParam(yaml_prefix + "sensors/lidar/beam_length", lidar_beam_length_);
 
-  param_loader.loadParam(yaml_prefix + "sensors/lidar/noise/enabled", drs_params_.lidar_noise_enabled);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/noise/enabled", &drs_params_.lidar_noise_enabled);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/noise/std_at_1m", drs_params_.lidar_std_at_1m);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/noise/std_slope", drs_params_.lidar_std_slope);
 
-  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_segmented/enabled", drs_params_.lidar_seg_enabled);
-  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_segmented/rate", drs_params_.lidar_seg_rate);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_segmented/enabled", &drs_params_.lidar_seg_enabled);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_segmented/rate", &drs_params_.lidar_seg_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 20.0));
 
-  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/enabled", drs_params_.lidar_int_enabled);
-  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/rate", drs_params_.lidar_int_rate);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_intensity/enabled", &drs_params_.lidar_int_enabled);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_intensity/rate", &drs_params_.lidar_int_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 20.0));
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/grass", drs_params_.lidar_int_value_grass);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/road", drs_params_.lidar_int_value_road);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/tree", drs_params_.lidar_int_value_tree);
@@ -768,12 +768,12 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/fence", drs_params_.lidar_int_value_fence);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/dirt_road", drs_params_.lidar_int_value_dirt_road);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/other", drs_params_.lidar_int_value_other);
-  param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/noise/enabled", drs_params_.lidar_int_noise_enabled);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_intensity/noise/enabled", &drs_params_.lidar_int_noise_enabled);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/noise/std_at_1m", drs_params_.lidar_int_std_at_1m);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/noise/std_slope", drs_params_.lidar_int_std_slope);
 
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/enabled", drs_params_.rgb_enabled);
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/rate", drs_params_.rgb_rate);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/enabled", &drs_params_.rgb_enabled);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/rate", &drs_params_.rgb_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 100.0));
 
   param_loader.loadParam(yaml_prefix + "sensors/rgb/width", rgb_width_);
   param_loader.loadParam(yaml_prefix + "sensors/rgb/height", rgb_height_);
@@ -787,21 +787,21 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "sensors/rgb/rotation_roll", rgb_rotation_roll_);
   param_loader.loadParam(yaml_prefix + "sensors/rgb/rotation_yaw", rgb_rotation_yaw_);
 
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/enable_hdr", drs_params_.rgb_enable_hdr);
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/enable_temporal_aa", drs_params_.rgb_enable_temporal_aa);
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/enable_raytracing", drs_params_.rgb_enable_raytracing);
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/enable_motion_blur", drs_params_.rgb_enable_motion_blur);
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/motion_blur_amount", drs_params_.rgb_motion_blur_amount);
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/motion_blur_distortion", drs_params_.rgb_motion_blur_distortion);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/enable_hdr", &drs_params_.rgb_enable_hdr);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/enable_temporal_aa", &drs_params_.rgb_enable_temporal_aa);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/enable_raytracing", &drs_params_.rgb_enable_raytracing);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/enable_motion_blur", &drs_params_.rgb_enable_motion_blur);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/motion_blur_amount", &drs_params_.rgb_motion_blur_amount);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/motion_blur_distortion", &drs_params_.rgb_motion_blur_distortion);
 
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/rgb_segmented/enabled", drs_params_.rgb_segmented_enabled);
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/rgb_segmented/rate", drs_params_.rgb_segmented_rate);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/rgb_segmented/enabled", &drs_params_.rgb_segmented_enabled);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/rgb_segmented/rate", &drs_params_.rgb_segmented_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 100.0));
 
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/enabled", drs_params_.stereo_enabled);
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/rate", drs_params_.stereo_rate);
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/enable_hdr", drs_params_.stereo_enable_hdr);
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/enable_temporal_aa", drs_params_.stereo_enable_temporal_aa);
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/enable_raytracing", drs_params_.stereo_enable_raytracing);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/enabled", &drs_params_.stereo_enabled);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/rate", &drs_params_.stereo_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 30.0));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/enable_hdr", &drs_params_.stereo_enable_hdr);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/enable_temporal_aa", &drs_params_.stereo_enable_temporal_aa);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/enable_raytracing", &drs_params_.stereo_enable_raytracing);
 
   param_loader.loadParam(yaml_prefix + "sensors/stereo/baseline", stereo_baseline_);
 
