@@ -12,7 +12,7 @@ plugin:
     actuators:             false
     control_group:         false
     attitude_rate:         true
-    attitude:              true
+    attitude:              false
     acceleration_hdg_rate: false
     acceleration_hdg:      false
     velocity_hdg_rate:     false

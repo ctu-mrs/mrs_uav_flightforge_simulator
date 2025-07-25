@@ -23,16 +23,16 @@
 
 ### Linux
 
-1. Install the [MRS UAV System](https://github.com/ctu-mrs/mrs_uav_system)
+1. Install the [MRS UAV System](https://github.com/ctu-mrs/mrs_uav_system/tree/ros2)
 2. Install the MRS UAV System FlightForge endpoint
 ```bash
-sudo apt install ros-noetic-mrs-uav-unreal-simulation
+sudo apt install ros-jazzy-mrs-uav-flightforge-simulator
 ```
 3. Download the and unpack [MRS FlightForge simulator](https://nasmrs.felk.cvut.cz/index.php/s/MnGARsSwnpeVy5z)
 4. Launch the FlightForge Simulator by `./mrs_flight_forge.sh`. Alternatively, start it in a headless mode via `./mrs_flight_forge.sh -RenderOffscreen`.
 6. Start the MRS UAV System FlightForge endpoint
 ```bash
-roscd mrs_uav_unreal_simulation
+cd /opt/ros/jazzy/share/mrs_uav_flightforge_simulator
 ./tmux/one_drone/start.sh
 ```
 
@@ -43,7 +43,7 @@ Requirements:
 * WSL 2.0
 
 1. Install Ubuntu 20.04 into the WSL 2.0 using the Microsoft Store
-2. Install the [MRS UAV System](https://github.com/ctu-mrs/mrs_uav_system) into WSL 2.0
+2. Install the [MRS UAV System](https://github.com/ctu-mrs/mrs_uav_system/tree/ros2) into WSL 2.0
 3. Create `.wslconfig` file in `C:/Users/<User>/.wslconfig`
 4. Place the following content into `.wslconfig`
 ```
@@ -57,13 +57,13 @@ hostAddressLoopback=true
 5. Restart the WSL by issuing `wsl --shutdown` into a comand line.
 6. Install the MRS UAV System FlightForge endpoint
 ```bash
-sudo apt install ros-noetic-mrs-uav-unreal-simulation
+sudo apt install ros-jazzy-mrs-uav-flightforge-simulator
 ```
 7. Download and unpack the [FlightForge Simulator](https://nasmrs.felk.cvut.cz/index.php/s/MnGARsSwnpeVy5z)
 8. Start the FlightForge Simulator
 9. Start the MRS UAV System FlightForge endpoint
 ```bash
-roscd mrs_uav_unreal_simulation
+cd /opt/ros/jazzy/share/mrs_uav_flightforge_simulator
 ./tmux/one_drone/start.sh
 ```
 10. The first start might require hitting "CTRL+C" in the `roscore` tab of the tmux session. The roscore is always stuck for the first time after rebooting the computer.

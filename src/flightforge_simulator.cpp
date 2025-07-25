@@ -302,7 +302,30 @@ private:
 
   void callbackRealtimeFactor(const double& param_value);
   void callbackPause(const bool& param_value);
+
+  void callbackRangefinderRate(const double& param_value);
+  void callbackRangefinderEnable(const bool& param_value);
+
   void callbackLidarRate(const double& param_value);
+  void callbackLidarEnable(const bool& param_value);
+
+  void callbackLidarSegEnable(const bool& param_value);
+  void callbackLidarSegRate(const double& param_value);
+
+  void callbackLidarIntEnable(const bool& param_value);
+  void callbackLidarIntRate(const double& param_value);
+
+  void callbackRgbEnable(const bool& param_value);
+  void callbackRgbRate(const double& param_value);
+
+  void callbackRgbSegEnable(const bool& param_value);
+  void callbackRgbSegRate(const double& param_value);
+
+  void callbackDepthEnable(const bool& param_value);
+  void callbackDepthRate(const double& param_value);
+
+  void callbackStereoEnable(const bool& param_value);
+  void callbackStereoRate(const double& param_value);
 
   /*segmentation decode array//{*/
   // clang-format off
@@ -729,10 +752,10 @@ void FlightforgeSimulator::timerInit() {
     last_step_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
 
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/rangefinder/enabled", &drs_params_.rangefinder_enabled);
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/rangefinder/rate", &drs_params_.rangefinder_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 100.0));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rangefinder/enabled", &drs_params_.rangefinder_enabled, (std::function<void(const bool&)>)std::bind(&FlightforgeSimulator::callbackRangefinderEnable, this, std::placeholders::_1));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rangefinder/rate", &drs_params_.rangefinder_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 100.0), (std::function<void(const double&)>)std::bind(&FlightforgeSimulator::callbackRangefinderRate, this, std::placeholders::_1));
 
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/enabled", &drs_params_.lidar_enabled);
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/enabled", &drs_params_.lidar_enabled, (std::function<void(const bool&)>)std::bind(&FlightforgeSimulator::callbackLidarEnable, this, std::placeholders::_1));
   dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/rate", &drs_params_.lidar_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 20.0), (std::function<void(const double&)>)std::bind(&FlightforgeSimulator::callbackLidarRate, this, std::placeholders::_1));
 
   param_loader.loadParam(yaml_prefix + "sensors/lidar/horizontal_fov_left", lidar_horizontal_fov_left_);
@@ -754,11 +777,11 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "sensors/lidar/noise/std_at_1m", drs_params_.lidar_std_at_1m);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/noise/std_slope", drs_params_.lidar_std_slope);
 
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_segmented/enabled", &drs_params_.lidar_seg_enabled);
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_segmented/rate", &drs_params_.lidar_seg_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 20.0));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_segmented/enabled", &drs_params_.lidar_seg_enabled, (std::function<void(const bool&)>)std::bind(&FlightforgeSimulator::callbackLidarSegEnable, this, std::placeholders::_1));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_segmented/rate", &drs_params_.lidar_seg_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 20.0), (std::function<void(const double&)>)std::bind(&FlightforgeSimulator::callbackLidarSegRate, this, std::placeholders::_1));
 
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_intensity/enabled", &drs_params_.lidar_int_enabled);
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_intensity/rate", &drs_params_.lidar_int_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 20.0));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_intensity/enabled", &drs_params_.lidar_int_enabled, (std::function<void(const bool&)>)std::bind(&FlightforgeSimulator::callbackLidarIntEnable, this, std::placeholders::_1));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/lidar_intensity/rate", &drs_params_.lidar_int_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 20.0), (std::function<void(const double&)>)std::bind(&FlightforgeSimulator::callbackLidarIntRate, this, std::placeholders::_1));
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/grass", drs_params_.lidar_int_value_grass);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/road", drs_params_.lidar_int_value_road);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/values/tree", drs_params_.lidar_int_value_tree);
@@ -770,8 +793,8 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/noise/std_at_1m", drs_params_.lidar_int_std_at_1m);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/lidar_intensity/noise/std_slope", drs_params_.lidar_int_std_slope);
 
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/enabled", &drs_params_.rgb_enabled);
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/rate", &drs_params_.rgb_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 100.0));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/enabled", &drs_params_.rgb_enabled, (std::function<void(const bool&)>)std::bind(&FlightforgeSimulator::callbackRgbEnable, this, std::placeholders::_1));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/rate", &drs_params_.rgb_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 100.0), (std::function<void(const double&)>)std::bind(&FlightforgeSimulator::callbackRgbRate, this, std::placeholders::_1));
 
   param_loader.loadParam(yaml_prefix + "sensors/rgb/width", rgb_width_);
   param_loader.loadParam(yaml_prefix + "sensors/rgb/height", rgb_height_);
@@ -792,11 +815,11 @@ void FlightforgeSimulator::timerInit() {
   dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/motion_blur_amount", &drs_params_.rgb_motion_blur_amount);
   dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/motion_blur_distortion", &drs_params_.rgb_motion_blur_distortion);
 
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/rgb_segmented/enabled", &drs_params_.rgb_segmented_enabled);
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/rgb_segmented/rate", &drs_params_.rgb_segmented_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 100.0));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/rgb_segmented/enabled", &drs_params_.rgb_segmented_enabled, (std::function<void(const bool&)>)std::bind(&FlightforgeSimulator::callbackRgbSegEnable, this, std::placeholders::_1));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/rgb_segmented/rate", &drs_params_.rgb_segmented_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 100.0), (std::function<void(const double&)>)std::bind(&FlightforgeSimulator::callbackRgbSegRate, this, std::placeholders::_1));
 
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/enabled", &drs_params_.stereo_enabled);
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/rate", &drs_params_.stereo_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 30.0));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/enabled", &drs_params_.stereo_enabled, (std::function<void(const bool&)>)std::bind(&FlightforgeSimulator::callbackStereoEnable, this, std::placeholders::_1));
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/rate", &drs_params_.stereo_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 30.0), (std::function<void(const double&)>)std::bind(&FlightforgeSimulator::callbackStereoRate, this, std::placeholders::_1));
   dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/enable_hdr", &drs_params_.stereo_enable_hdr);
   dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/enable_temporal_aa", &drs_params_.stereo_enable_temporal_aa);
   dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/enable_raytracing", &drs_params_.stereo_enable_raytracing);
@@ -1163,61 +1186,74 @@ void FlightforgeSimulator::timerInit() {
 
   timer_opts_sensors.node           = node_;
   timer_opts_sensors.callback_group = cbgrp_sensors_;
+  timer_opts_sensors.autostart      = false;
 
-  if (drs_params_.rangefinder_rate > 0) {
-    {
-      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerRangefinder, this);
+  std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerRangefinder, this);
 
-      timer_rangefinder_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.rangefinder_rate, clock_), callback_fcn);
-    }
+  timer_rangefinder_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.rangefinder_rate, clock_), callback_fcn);
+
+  if (drs_params_.rangefinder_enabled) {
+    timer_rangefinder_->start();
   }
 
-  if (drs_params_.lidar_rate > 0) {
-    {
-      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerLidar, this);
+  {
+    std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerLidar, this);
 
-      timer_lidar_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.lidar_rate, clock_), callback_fcn);
-    }
+    timer_lidar_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.lidar_rate, clock_), callback_fcn);
   }
 
-  if (drs_params_.lidar_seg_rate > 0) {
-    {
-      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerSegLidar, this);
-
-      timer_seg_lidar_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.lidar_seg_rate, clock_), callback_fcn);
-    }
+  if (drs_params_.rangefinder_enabled) {
+    timer_lidar_->start();
   }
 
-  if (drs_params_.lidar_int_rate > 0) {
-    {
-      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerIntLidar, this);
+  {
+    std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerSegLidar, this);
 
-      timer_int_lidar_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.lidar_int_rate, clock_), callback_fcn);
-    }
+    timer_seg_lidar_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.lidar_seg_rate, clock_), callback_fcn);
   }
 
-  if (drs_params_.rgb_rate > 0) {
-    {
-      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerRgb, this);
-
-      timer_rgb_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.rgb_rate, clock_), callback_fcn);
-    }
+  if (drs_params_.lidar_seg_enabled) {
+    timer_seg_lidar_->start();
   }
 
-  if (drs_params_.stereo_rate > 0) {
-    {
-      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerStereo, this);
+  {
+    std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerIntLidar, this);
 
-      timer_stereo_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.stereo_rate, clock_), callback_fcn);
-    }
+    timer_int_lidar_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.lidar_int_rate, clock_), callback_fcn);
   }
 
-  if (drs_params_.rgb_segmented_rate > 0) {
-    {
-      std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerRgbSegmented, this);
+  if (drs_params_.lidar_int_enabled) {
+    timer_int_lidar_->start();
+  }
 
-      timer_rgb_segmented_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.rgb_segmented_rate, clock_), callback_fcn);
-    }
+  {
+    std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerRgb, this);
+
+    timer_rgb_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.rgb_rate, clock_), callback_fcn);
+  }
+
+  if (drs_params_.rgb_enabled) {
+    timer_rgb_->start();
+  }
+
+  {
+    std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerStereo, this);
+
+    timer_stereo_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.stereo_rate, clock_), callback_fcn);
+  }
+
+  if (drs_params_.rgb_segmented_enabled) {
+    timer_stereo_->start();
+  }
+
+  {
+    std::function<void()> callback_fcn = std::bind(&FlightforgeSimulator::timerRgbSegmented, this);
+
+    timer_rgb_segmented_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.rgb_segmented_rate, clock_), callback_fcn);
+  }
+
+  if (drs_params_.rgb_segmented_enabled) {
+    timer_rgb_segmented_->start();
   }
 
   /* if (drs_params_.rgb_depth_rate > 0) { */
@@ -1463,12 +1499,6 @@ void FlightforgeSimulator::timerRangefinder() {
     return;
   }
 
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
-  if (!drs_params.rangefinder_enabled) {
-    return;
-  }
-
   for (size_t i = 0; i < uavs_.size(); i++) {
     bool   res;
     double range;
@@ -1508,10 +1538,6 @@ void FlightforgeSimulator::timerLidar() {
   /* mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerLidar()"); */
 
   auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
-  if (!drs_params_.lidar_enabled) {
-    return;
-  }
 
   for (size_t i = 0; i < uavs_.size(); i++) {
 
@@ -1600,13 +1626,9 @@ void FlightforgeSimulator::timerSegLidar() {
     return;
   }
 
-  /* mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerSegLidar()"); */
-
   auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
 
-  if (!drs_params_.lidar_seg_enabled) {
-    return;
-  }
+  /* mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerSegLidar()"); */
 
   for (size_t i = 0; i < uavs_.size(); i++) {
 
@@ -1678,13 +1700,9 @@ void FlightforgeSimulator::timerIntLidar() {
     return;
   }
 
-  /* mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerIntLidar()"); */
-
   auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
 
-  if (!drs_params_.lidar_int_enabled) {
-    return;
-  }
+  /* mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerIntLidar()"); */
 
   for (size_t i = 0; i < uavs_.size(); i++) {
 
@@ -1775,12 +1793,6 @@ void FlightforgeSimulator::timerRgb() {
 
   /* mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer(node_, "timerRgb()"); */
 
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
-  if (!drs_params.rgb_enabled) {
-    return;
-  }
-
   for (size_t i = 0; i < uavs_.size(); i++) {
 
     bool                       res;
@@ -1844,12 +1856,6 @@ void FlightforgeSimulator::timerStereo() {
   }
 
   /* mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerStereo()"); */
-
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
-  if (!drs_params.stereo_enabled) {
-    return;
-  }
 
   for (size_t i = 0; i < uavs_.size(); i++) {
 
@@ -1934,12 +1940,6 @@ void FlightforgeSimulator::timerRgbSegmented() {
 
   /* mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerRgbSegmented()"); */
 
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
-  if (!drs_params.rgb_segmented_enabled) {
-    return;
-  }
-
   for (size_t i = 0; i < uavs_.size(); i++) {
 
     bool                       res;
@@ -2005,12 +2005,6 @@ void FlightforgeSimulator::timerDepth() {
   }
 
   /* mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerDepth()"); */
-
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
-  if (!drs_params.rgb_depth_enabled) {
-    return;
-  }
 
   for (size_t i = 0; i < uavs_.size(); i++) {
 
@@ -2110,19 +2104,290 @@ void FlightforgeSimulator::callbackPause(const bool& param_value) {
 
 //}
 
+/* callbackRangefinderEnable() //{ */
+
+void FlightforgeSimulator::callbackRangefinderEnable(const bool& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackRangefinderEnable()");
+
+  if (param_value) {
+    timer_rangefinder_->start();
+  } else {
+    timer_rangefinder_->stop();
+  }
+}
+
+//}
+
+/* callbackRangefinderRate() //{ */
+
+void FlightforgeSimulator::callbackRangefinderRate(const double& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackRangefinderRate()");
+
+  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
+
+  timer_rangefinder_->stop();
+
+  timer_rangefinder_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
+
+  if (drs_params.rangefinder_enabled) {
+    timer_rangefinder_->start();
+  }
+
+  RCLCPP_INFO(get_logger(), "rangefinder rate updated to %.2f Hz", param_value);
+}
+
+//}
+
+/* callbackLidarEnable() //{ */
+
+void FlightforgeSimulator::callbackLidarEnable(const bool& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackLidarEnable()");
+
+  if (param_value) {
+    timer_lidar_->start();
+  } else {
+    timer_lidar_->stop();
+  }
+}
+
+//}
+
 /* callbackLidarRate() //{ */
 
-void FlightforgeSimulator::callbackLidarRate([[maybe_unused]] const double& param_value) {
+void FlightforgeSimulator::callbackLidarRate(const double& param_value) {
 
   RCLCPP_INFO(get_logger(), "callbackLidarRate()");
+
+  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
 
   timer_lidar_->stop();
 
   timer_lidar_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
 
-  timer_lidar_->start();
+  if (drs_params.lidar_enabled) {
+    timer_lidar_->start();
+  }
 
   RCLCPP_INFO(get_logger(), "lidar rate updated to %.2f Hz", param_value);
+}
+
+//}
+
+/* callbackLidarSegEnable() //{ */
+
+void FlightforgeSimulator::callbackLidarSegEnable(const bool& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackLidarSegEnable()");
+
+  if (param_value) {
+    timer_seg_lidar_->start();
+  } else {
+    timer_seg_lidar_->stop();
+  }
+}
+
+//}
+
+/* callbackLidarSegRate() //{ */
+
+void FlightforgeSimulator::callbackLidarSegRate(const double& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackLidarSegRate()");
+
+  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
+
+  timer_seg_lidar_->stop();
+
+  timer_seg_lidar_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
+
+  if (drs_params.lidar_seg_enabled) {
+    timer_seg_lidar_->start();
+  }
+
+  RCLCPP_INFO(get_logger(), "lidar segmented rate updated to %.2f Hz", param_value);
+}
+
+//}
+
+/* callbackLidarIntEnable() //{ */
+
+void FlightforgeSimulator::callbackLidarIntEnable(const bool& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackLidarIntEnable()");
+
+  if (param_value) {
+    timer_int_lidar_->start();
+  } else {
+    timer_int_lidar_->stop();
+  }
+}
+
+//}
+
+/* callbackLidarSegRate() //{ */
+
+void FlightforgeSimulator::callbackLidarIntRate(const double& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackLidarIntRate()");
+
+  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
+
+  timer_int_lidar_->stop();
+
+  timer_int_lidar_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
+
+  if (drs_params.lidar_int_enabled) {
+    timer_int_lidar_->start();
+  }
+
+  RCLCPP_INFO(get_logger(), "lidar intensity rate updated to %.2f Hz", param_value);
+}
+
+//}
+
+/* callbackRgbEnable() //{ */
+
+void FlightforgeSimulator::callbackRgbEnable(const bool& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackRgbEnable()");
+
+  if (param_value) {
+    timer_rgb_->start();
+  } else {
+    timer_rgb_->stop();
+  }
+}
+
+//}
+
+/* callbackRgbRate() //{ */
+
+void FlightforgeSimulator::callbackRgbRate(const double& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackRgbRate()");
+
+  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
+
+  timer_rgb_->stop();
+
+  timer_rgb_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
+
+  if (drs_params.rgb_enabled) {
+    timer_rgb_->start();
+  }
+
+  RCLCPP_INFO(get_logger(), "rgb rate updated to %.2f Hz", param_value);
+}
+
+//}
+
+/* callbackRgbSegEnable() //{ */
+
+void FlightforgeSimulator::callbackRgbSegEnable(const bool& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackRgbSegEnable()");
+
+  if (param_value) {
+    timer_rgb_segmented_->start();
+  } else {
+    timer_rgb_segmented_->stop();
+  }
+}
+
+//}
+
+/* callbackRgbSegRate() //{ */
+
+void FlightforgeSimulator::callbackRgbSegRate(const double& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackRgbSegRate()");
+
+  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
+
+  timer_rgb_segmented_->stop();
+
+  timer_rgb_segmented_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
+
+  if (drs_params.rgb_segmented_enabled) {
+    timer_rgb_segmented_->start();
+  }
+
+  RCLCPP_INFO(get_logger(), "rgb segmented rate updated to %.2f Hz", param_value);
+}
+
+//}
+
+/* callbackDepthEnable() //{ */
+
+void FlightforgeSimulator::callbackDepthEnable(const bool& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackDepthEnable()");
+
+  if (param_value) {
+    timer_depth_->start();
+  } else {
+    timer_depth_->stop();
+  }
+}
+
+//}
+
+/* callbackDepthRate() //{ */
+
+void FlightforgeSimulator::callbackDepthRate(const double& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackDepthRate()");
+
+  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
+
+  timer_depth_->stop();
+
+  timer_depth_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
+
+  if (drs_params.rgb_depth_enabled) {
+    timer_depth_->start();
+  }
+
+  RCLCPP_INFO(get_logger(), "depth rate updated to %.2f Hz", param_value);
+}
+
+//}
+
+/* callbackStereoEnable() //{ */
+
+void FlightforgeSimulator::callbackStereoEnable(const bool& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackStereoEnable()");
+
+  if (param_value) {
+    timer_stereo_->start();
+  } else {
+    timer_stereo_->stop();
+  }
+}
+
+//}
+
+/* callbackStereoRate() //{ */
+
+void FlightforgeSimulator::callbackStereoRate(const double& param_value) {
+
+  RCLCPP_INFO(get_logger(), "callbackStereoRate()");
+
+  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
+
+  timer_stereo_->stop();
+
+  timer_stereo_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
+
+  if (drs_params.stereo_enabled) {
+    timer_stereo_->start();
+  }
+
+  RCLCPP_INFO(get_logger(), "stereo rate updated to %.2f Hz", param_value);
 }
 
 //}

@@ -31,12 +31,12 @@ mrs_uav_flightforge_simulator:
   graphics_settings: "low"
 
   # 0 -  VALLEY
-  # 1 -  FOREST
-  # 2 -  INFINITE_FOREST
+  # 1 -  FOREST (only in the full version)
+  # 2 -  INFINITE_FOREST (only in the full version)
   # 3 -  WAREHOUSE
   # 4 -  CAVE
-  # 5 -  ERDING_AIRBASE
-  # 6 -  TEMESVAR :D
+  # 5 -  ERDING_AIRBASE (only in the full version)
+  # 6 -  TEMESVAR (only in the full version)
   world_name: "valley"
 
   #  {"sunny", 0},
@@ -219,34 +219,34 @@ subscribers:
 
   # used for feedforward
   tracker_cmd:
-    enabled: true
+    enabled: false
 
   position_cmd:
-    enabled: true
+    enabled: false
 
   velocity_hdg_cmd:
-    enabled: true
+    enabled: false
 
   velocity_hdg_rate_cmd:
-    enabled: true
+    enabled: false
 
   acceleration_hdg_cmd:
-    enabled: true
+    enabled: false
 
   acceleration_hdg_rate_cmd:
-    enabled: true
+    enabled: false
 
   attitude_cmd:
-    enabled: true
+    enabled: false
 
   attitude_rate_cmd:
     enabled: true
 
   control_group_cmd:
-    enabled: true
+    enabled: false
 
   actuators_group_cmd:
-    enabled: true
+    enabled: false
 
 publishers:
 
