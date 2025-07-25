@@ -36,10 +36,10 @@ windows:
       layout: tiled
       panes:
         - waitForCore; ./takeoff.sh
-  # - stereo:
-  #     layout: tiled
-  #     panes:
-  #       - ros2 launch mrs_uav_unreal_simulator stereo_image_proc.launch.py
+  - stereo:
+      layout: tiled
+      panes:
+        - ros2 launch mrs_uav_flightforge_simulator stereo_image_proc.launch.py namespace:=uav1/stereo
   # - mapping:
   #     layout: tiled
   #     panes:

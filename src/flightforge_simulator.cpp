@@ -838,6 +838,7 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation_roll", stereo_rotation_roll_);
   param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation_yaw", stereo_rotation_yaw_);
 
+  param_loader.loadParam(yaml_prefix + "weather_type", weather_type_);
   param_loader.loadParam(yaml_prefix + "graphics_settings", flightforge_graphics_settings_enum_);
   param_loader.loadParam(yaml_prefix + "uavs_mutual_visibility", uavs_mutual_visibility_);
   param_loader.loadParam(yaml_prefix + "daytime/hour", daytime_hour_);
@@ -957,12 +958,13 @@ void FlightforgeSimulator::timerInit() {
     RCLCPP_ERROR(node_->get_logger(), "Set Mutual Drone Visibility was NOT succesfull.");
   }
 
-  /* res = ueds_game_controller_->SetWeather(ueds_connector::WeatherType::Type2Id().at(weather_type_)); */
-  /* if (res) { */
-  /*   RCLCPP_INFO(node_->get_logger(), "SetWeather successful."); */
-  /* } else { */
-  /*   RCLCPP_ERROR(node_->get_logger(), "SetWeather error"); */
-  /* } */
+  res = ueds_game_controller_->SetWeather(ueds_connector::WeatherType::Type2Id().at(weather_type_));
+
+  if (res) {
+    RCLCPP_INFO(node_->get_logger(), "SetWeather successful.");
+  } else {
+    RCLCPP_ERROR(node_->get_logger(), "SetWeather error");
+  }
 
   res = ueds_game_controller_->SetDatetime(daytime_hour_, daytime_minute_);
 
@@ -1242,7 +1244,7 @@ void FlightforgeSimulator::timerInit() {
     timer_stereo_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.stereo_rate, clock_), callback_fcn);
   }
 
-  if (drs_params_.rgb_segmented_enabled) {
+  if (drs_params_.stereo_enabled) {
     timer_stereo_->start();
   }
 
@@ -1486,7 +1488,7 @@ void FlightforgeSimulator::timerTimeSync() {
 
   last_real_ = current_real;
 
-  RCLCPP_DEBUG(node_->get_logger(), "wall time %f flightforge %f time offset: %f, offset slope %f s/s", sync_start, flightforge_time, wall_time_offset_, wall_time_offset_drift_slope_);
+  RCLCPP_INFO(node_->get_logger(), "wall time %f flightforge %f time offset: %f, offset slope %f s/s", sync_start, flightforge_time, wall_time_offset_, wall_time_offset_drift_slope_);
 }
 
 //}
@@ -1896,14 +1898,18 @@ void FlightforgeSimulator::timerStereo() {
 
     msg_right->header.frame_id = "uav" + std::to_string(i + 1) + "/stereo_right";
 
-    const double relative_wall_age = clock_->now().seconds() - flightforgeToWallTime(stamp);
+    // TODO fix stamp
+    /* const double relative_wall_age = clock_->now().seconds() - flightforgeToWallTime(stamp); */
 
-    if (abs(relative_wall_age) < 1.0) {
-      rclcpp::Time shifted_time_stamp = rclcpp::Time(clock_->now().seconds() - (relative_wall_age * actual_rtf_));
-      msg_right->header.stamp         = shifted_time_stamp;
-    }
+    /* if (abs(relative_wall_age) < 1.0) { */
+    /*   rclcpp::Time shifted_time_stamp = rclcpp::Time(clock_->now().seconds() - (relative_wall_age * actual_rtf_)); */
+    /*   msg_right->header.stamp         = shifted_time_stamp; */
+    /* } */
 
-    msg_left->header.stamp = msg_right->header.stamp;
+    auto last_step_time = mrs_lib::get_mutexed(mutex_sim_time_, last_step_time_);
+
+    msg_left->header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+    msg_right->header.stamp = msg_left->header.stamp;
 
     ph_imp_stereo_left_[i].publish(msg_left);
     ph_imp_stereo_right_[i].publish(msg_right);

@@ -52,14 +52,14 @@ mrs_uav_flightforge_simulator:
         enabled: false
 
     stereo:
-      enabled: false
+      enabled: true
 
   graphics_settings: "low"
 
   realtime_factor: 1.0 # [-]
 
-  world_name: "valley" # works
-  # world_name: "warehouse" # works
+  world_name: "valley" # works in Lite
+  # world_name: "warehouse" # works in Lite
 
   # TODO
   # world_name: "cave" # does not work
@@ -71,5 +71,5 @@ mrs_uav_flightforge_simulator:
 
   daytime:
 
-    hour: 7
+    hour: 15
     minute: 30

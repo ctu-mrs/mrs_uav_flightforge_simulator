@@ -54,6 +54,8 @@ def generate_launch_description():
 
     # #} end of custom_config
 
+    # #{ configs
+
     config_files = [
         # general configs
         pkg_share_path + '/config/flightforge_simulator.yaml',
@@ -82,6 +84,8 @@ def generate_launch_description():
         mrs_simulator_path + '/config/uavs/t650.yaml',
         mrs_simulator_path + '/config/uavs/x500.yaml',
     ]
+
+    # #} end of configs
 
     ld.add_action(ComposableNodeContainer(
 
