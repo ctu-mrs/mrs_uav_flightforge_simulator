@@ -92,6 +92,7 @@ private:
 
   rclcpp::Node::SharedPtr  node_;
   rclcpp::Clock::SharedPtr clock_;
+  rclcpp::Clock::SharedPtr wall_clock_;
   std::atomic<bool>        is_initialized_ = false;
 
   std::shared_ptr<mrs_lib::ScopeTimerLogger>       scope_timer_logger_;
@@ -105,6 +106,7 @@ private:
 
   rclcpp::Time sim_time_;
   rclcpp::Time last_step_time_;
+  rclcpp::Time last_step_wall_time_;
   std::mutex   mutex_sim_time_;
 
   std::string _world_frame_name_;
@@ -151,7 +153,9 @@ private:
 
   // | ------------------------ rtf check ----------------------- |
 
-  double       actual_rtf_ = 1.0;
+  double     actual_rtf_ = 1.0;
+  std::mutex mutex_actual_rtf_;
+
   rclcpp::Time last_sim_time_status_;
 
   // | ----------------------- publishers ----------------------- |
@@ -209,12 +213,11 @@ private:
 
   void checkForCrash(void);
 
-  double flightforgeToWallTime(const double flightforge_time);
+  rclcpp::Time flightforgeTimeToSimtime(const double flightforge_time);
 
   // how much to add to unreal time to get to our wall time
   double       wall_time_offset_             = 0;
   double       wall_time_offset_drift_slope_ = 0;
-  rclcpp::Time last_sync_time_;
   std::mutex   mutex_wall_time_offset_;
   rclcpp::Time last_real_;
 
@@ -674,8 +677,9 @@ FlightforgeSimulator::FlightforgeSimulator(rclcpp::NodeOptions options) : Node("
 
 void FlightforgeSimulator::timerInit() {
 
-  node_  = this->shared_from_this();
-  clock_ = node_->get_clock();
+  node_       = this->shared_from_this();
+  clock_      = node_->get_clock();
+  wall_clock_ = std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME);
 
   srand(time(NULL));
 
@@ -745,11 +749,13 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "sim_time_from_wall_time", sim_time_from_wall_time);
 
   if (sim_time_from_wall_time) {
-    sim_time_       = clock_->now();
-    last_step_time_ = clock_->now();
+    sim_time_            = clock_->now();
+    last_step_time_      = clock_->now();
+    last_step_wall_time_ = wall_clock_->now();
   } else {
-    sim_time_       = rclcpp::Time(0, 0, RCL_ROS_TIME);
-    last_step_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    sim_time_            = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    last_step_time_      = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    last_step_wall_time_ = rclcpp::Time(0, 0, RCL_SYSTEM_TIME);
   }
 
   dynparam_mgr_->register_param(yaml_prefix + "sensors/rangefinder/enabled", &drs_params_.rangefinder_enabled, (std::function<void(const bool&)>)std::bind(&FlightforgeSimulator::callbackRangefinderEnable, this, std::placeholders::_1));
@@ -1204,7 +1210,7 @@ void FlightforgeSimulator::timerInit() {
     timer_lidar_ = std::make_shared<TimerType>(timer_opts_sensors, rclcpp::Rate(drs_params_.lidar_rate, clock_), callback_fcn);
   }
 
-  if (drs_params_.rangefinder_enabled) {
+  if (drs_params_.lidar_enabled) {
     timer_lidar_->start();
   }
 
@@ -1314,18 +1320,37 @@ void FlightforgeSimulator::timerMain() {
 
   auto sim_time = mrs_lib::get_mutexed(mutex_sim_time_, sim_time_);
 
-  const double dt_since_last_step = (sim_time - last_step_time_).seconds();
+  // fast propagation of the wall time offset using the offset drift
+  {
+    std::scoped_lock lock(mutex_wall_time_offset_);
 
-  if (dt_since_last_step >= simulation_step_size) {
+    rclcpp::Time now_wall = wall_clock_->now();
 
-    for (size_t i = 0; i < uavs_.size(); i++) {
+    const double wall_dt_since_last_step = (now_wall - last_step_wall_time_).seconds();
 
-      uavs_.at(i)->makeStep(dt_since_last_step, sim_time.seconds());
+    if (wall_dt_since_last_step > 1e-5) {
+
+      wall_time_offset_ += wall_time_offset_drift_slope_ * wall_dt_since_last_step;
     }
 
-    publishPoses();
+    last_step_wall_time_ = now_wall;
+  }
 
-    last_step_time_ = sim_time;
+  // step the sim
+  {
+    const double dt_since_last_step = (sim_time - last_step_time_).seconds();
+
+    if (dt_since_last_step >= simulation_step_size) {
+
+      for (size_t i = 0; i < uavs_.size(); i++) {
+
+        uavs_.at(i)->makeStep(dt_since_last_step, sim_time.seconds());
+      }
+
+      publishPoses();
+
+      last_step_time_ = sim_time;
+    }
   }
 }
 
@@ -1341,6 +1366,7 @@ void FlightforgeSimulator::timerStatus() {
 
   auto sim_time   = mrs_lib::get_mutexed(mutex_sim_time_, sim_time_);
   auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
+  auto actual_rtf = mrs_lib::get_mutexed(mutex_actual_rtf_, actual_rtf_);
 
   rclcpp::Duration last_sec_sim_dt = sim_time - last_sim_time_status_;
 
@@ -1348,7 +1374,7 @@ void FlightforgeSimulator::timerStatus() {
 
   double last_sec_rtf = last_sec_sim_dt.seconds() / 1.0;
 
-  actual_rtf_ = 0.9 * actual_rtf_ + 0.1 * last_sec_rtf;
+  actual_rtf = 0.9 * actual_rtf + 0.1 * last_sec_rtf;
 
   double fps;
 
@@ -1406,7 +1432,9 @@ void FlightforgeSimulator::timerStatus() {
     checkForCrash();
   }
 
-  RCLCPP_INFO(node_->get_logger(), "%s, desired RTF = %.2f, actual RTF = %.2f, FlightForge FPS = %.2f, FlightForge RTF = %.2f", drs_params.paused ? "paused" : "running", drs_params.realtime_factor, actual_rtf_, flightforge_fps_, flightforge_rtf);
+  RCLCPP_INFO(node_->get_logger(), "%s, desired RTF = %.2f, actual RTF = %.2f, FlightForge FPS = %.2f, FlightForge RTF = %.2f", drs_params.paused ? "paused" : "running", drs_params.realtime_factor, actual_rtf, flightforge_fps_, flightforge_rtf);
+
+  mrs_lib::set_mutexed(mutex_actual_rtf_, actual_rtf, actual_rtf_);
 }
 
 //}
@@ -1428,7 +1456,7 @@ void FlightforgeSimulator::timerUnrealSync() {
 
 void FlightforgeSimulator::timerTimeSync() {
 
-  rclcpp::Time current_real = clock_->now();
+  rclcpp::Time current_real = wall_clock_->now();
 
   if (!is_initialized_) {
     return;
@@ -1436,7 +1464,7 @@ void FlightforgeSimulator::timerTimeSync() {
 
   auto wall_time_offset = mrs_lib::get_mutexed(mutex_wall_time_offset_, wall_time_offset_);
 
-  const double sync_start = clock_->now().seconds();
+  const double sync_start = wall_clock_->now().seconds();
 
   bool   res;
   double flightforge_time;
@@ -1447,7 +1475,7 @@ void FlightforgeSimulator::timerTimeSync() {
     std::tie(res, flightforge_time) = ueds_game_controller_->GetTime();
   }
 
-  const double sync_end = clock_->now().seconds();
+  const double sync_end = wall_clock_->now().seconds();
 
   if (!res) {
     RCLCPP_ERROR(node_->get_logger(), "Failed to get FlightForge's time");
@@ -1482,8 +1510,6 @@ void FlightforgeSimulator::timerTimeSync() {
     std::scoped_lock lock(mutex_wall_time_offset_);
 
     wall_time_offset_ = new_wall_time_offset;
-
-    last_sync_time_ = clock_->now();
   }
 
   last_real_ = current_real;
@@ -1830,12 +1856,7 @@ void FlightforgeSimulator::timerRgb() {
 
     msg->header.frame_id = "uav" + std::to_string(i + 1) + "/rgb";
 
-    const double relative_wall_age = clock_->now().seconds() - flightforgeToWallTime(stamp);
-
-    if (abs(relative_wall_age) < 1.0) {
-      rclcpp::Time shifted_time_stamp = rclcpp::Time(clock_->now().seconds() - (relative_wall_age * actual_rtf_));
-      msg->header.stamp               = shifted_time_stamp;
-    }
+    msg->header.stamp = flightforgeTimeToSimtime(stamp);
 
     ph_img_rgb_[i].publish(msg);
 
@@ -1898,17 +1919,7 @@ void FlightforgeSimulator::timerStereo() {
 
     msg_right->header.frame_id = "uav" + std::to_string(i + 1) + "/stereo_right";
 
-    // TODO fix stamp
-    /* const double relative_wall_age = clock_->now().seconds() - flightforgeToWallTime(stamp); */
-
-    /* if (abs(relative_wall_age) < 1.0) { */
-    /*   rclcpp::Time shifted_time_stamp = rclcpp::Time(clock_->now().seconds() - (relative_wall_age * actual_rtf_)); */
-    /*   msg_right->header.stamp         = shifted_time_stamp; */
-    /* } */
-
-    auto last_step_time = mrs_lib::get_mutexed(mutex_sim_time_, last_step_time_);
-
-    msg_left->header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+    msg_left->header.stamp  = flightforgeTimeToSimtime(stamp);
     msg_right->header.stamp = msg_left->header.stamp;
 
     ph_imp_stereo_left_[i].publish(msg_left);
@@ -1981,14 +1992,7 @@ void FlightforgeSimulator::timerRgbSegmented() {
 
     msg->header.frame_id = "uav" + std::to_string(i + 1) + "/rgb";
 
-    /* const double relative_wall_age = clock_->now().seconds() - flightforgeToWallTime(stamp); */
-
-    /* if (abs(relative_wall_age) < 1.0) { */
-    /*   rclcpp::Time shifted_time_stamp = rclcpp::Time(clock_->now().seconds() - (relative_wall_age * actual_rtf_)); */
-    /*   msg->header.stamp = shifted_time_stamp; */
-    /* } */
-
-    msg->header.stamp = clock_->now();
+    msg->header.stamp = flightforgeTimeToSimtime(stamp);
 
     ph_imp_rgbd_segmented_[i].publish(msg);
 
@@ -2047,14 +2051,7 @@ void FlightforgeSimulator::timerDepth() {
 
     msg->header.frame_id = "uav" + std::to_string(i + 1) + "/rgb";
 
-    const double relative_wall_age = clock_->now().seconds() - flightforgeToWallTime(stamp);
-
-    if (abs(relative_wall_age) < 1.0) {
-      rclcpp::Time shifted_time_stamp = rclcpp::Time(clock_->now().seconds() - (relative_wall_age * actual_rtf_));
-      msg->header.stamp               = shifted_time_stamp;
-    }
-
-    msg->header.stamp = clock_->now();
+    msg->header.stamp = flightforgeTimeToSimtime(stamp);
 
     ph_imp_depth_[i].publish(msg);
 
@@ -2131,13 +2128,11 @@ void FlightforgeSimulator::callbackRangefinderRate(const double& param_value) {
 
   RCLCPP_INFO(get_logger(), "callbackRangefinderRate()");
 
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
   timer_rangefinder_->stop();
 
   timer_rangefinder_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
 
-  if (drs_params.rangefinder_enabled) {
+  if (drs_params_.rangefinder_enabled) {
     timer_rangefinder_->start();
   }
 
@@ -2167,13 +2162,11 @@ void FlightforgeSimulator::callbackLidarRate(const double& param_value) {
 
   RCLCPP_INFO(get_logger(), "callbackLidarRate()");
 
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
   timer_lidar_->stop();
 
   timer_lidar_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
 
-  if (drs_params.lidar_enabled) {
+  if (drs_params_.lidar_enabled) {
     timer_lidar_->start();
   }
 
@@ -2203,13 +2196,11 @@ void FlightforgeSimulator::callbackLidarSegRate(const double& param_value) {
 
   RCLCPP_INFO(get_logger(), "callbackLidarSegRate()");
 
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
   timer_seg_lidar_->stop();
 
   timer_seg_lidar_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
 
-  if (drs_params.lidar_seg_enabled) {
+  if (drs_params_.lidar_seg_enabled) {
     timer_seg_lidar_->start();
   }
 
@@ -2239,13 +2230,11 @@ void FlightforgeSimulator::callbackLidarIntRate(const double& param_value) {
 
   RCLCPP_INFO(get_logger(), "callbackLidarIntRate()");
 
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
   timer_int_lidar_->stop();
 
   timer_int_lidar_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
 
-  if (drs_params.lidar_int_enabled) {
+  if (drs_params_.lidar_int_enabled) {
     timer_int_lidar_->start();
   }
 
@@ -2275,13 +2264,11 @@ void FlightforgeSimulator::callbackRgbRate(const double& param_value) {
 
   RCLCPP_INFO(get_logger(), "callbackRgbRate()");
 
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
   timer_rgb_->stop();
 
   timer_rgb_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
 
-  if (drs_params.rgb_enabled) {
+  if (drs_params_.rgb_enabled) {
     timer_rgb_->start();
   }
 
@@ -2311,13 +2298,11 @@ void FlightforgeSimulator::callbackRgbSegRate(const double& param_value) {
 
   RCLCPP_INFO(get_logger(), "callbackRgbSegRate()");
 
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
   timer_rgb_segmented_->stop();
 
   timer_rgb_segmented_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
 
-  if (drs_params.rgb_segmented_enabled) {
+  if (drs_params_.rgb_segmented_enabled) {
     timer_rgb_segmented_->start();
   }
 
@@ -2347,13 +2332,11 @@ void FlightforgeSimulator::callbackDepthRate(const double& param_value) {
 
   RCLCPP_INFO(get_logger(), "callbackDepthRate()");
 
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
   timer_depth_->stop();
 
   timer_depth_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
 
-  if (drs_params.rgb_depth_enabled) {
+  if (drs_params_.rgb_depth_enabled) {
     timer_depth_->start();
   }
 
@@ -2383,13 +2366,11 @@ void FlightforgeSimulator::callbackStereoRate(const double& param_value) {
 
   RCLCPP_INFO(get_logger(), "callbackStereoRate()");
 
-  auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
-
   timer_stereo_->stop();
 
   timer_stereo_->setPeriod(std::chrono::duration<double>(1.0 / param_value));
 
-  if (drs_params.stereo_enabled) {
+  if (drs_params_.stereo_enabled) {
     timer_stereo_->start();
   }
 
@@ -2701,13 +2682,25 @@ void FlightforgeSimulator::publishStaticTfs(void) {
 
 //}
 
-/* flightforgeToWallTime() //{ */
+/* flightforgeTimeToSimtime() //{ */
 
-double FlightforgeSimulator::flightforgeToWallTime(const double flightforge_time) {
+rclcpp::Time FlightforgeSimulator::flightforgeTimeToSimtime(const double flightforge_time) {
 
   auto wall_time_offset = mrs_lib::get_mutexed(mutex_wall_time_offset_, wall_time_offset_);
+  auto actual_rtf       = mrs_lib::get_mutexed(mutex_actual_rtf_, actual_rtf_);
 
-  return flightforge_time + wall_time_offset;
+  double relative_wall_age = wall_clock_->now().seconds() - (flightforge_time + wall_time_offset);
+
+  double sim_time = clock_->now().seconds() - relative_wall_age * actual_rtf;
+
+  if (sim_time < 0) {
+    return rclcpp::Time(0, 0, clock_->get_clock_type());
+  }
+
+  const double secs = floor(sim_time);
+  const double nanosecs = (sim_time - secs) * 1e9;
+
+  return rclcpp::Time(secs, nanosecs, clock_->get_clock_type());
 }
 
 //}

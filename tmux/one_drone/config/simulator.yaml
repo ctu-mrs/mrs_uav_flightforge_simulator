@@ -53,21 +53,22 @@ mrs_uav_flightforge_simulator:
 
     stereo:
       enabled: true
+      rate: 30.0
 
-  graphics_settings: "low"
+  graphics_settings: "medium"
 
   realtime_factor: 1.0 # [-]
 
-  world_name: "valley" # works in Lite
+  # world_name: "valley" # works in Lite
   # world_name: "warehouse" # works in Lite
 
   # TODO
   # world_name: "cave" # does not work
   # world_name: "dead_spruce_forest" # does not work
   # world_name: "infinite_forest" # does not work
-  # world_name: "forest" # does not work
+  world_name: "forest" # does not work
 
-  weather_type: "cloudy"
+  # weather_type: "cloudy"
 
   daytime:
 

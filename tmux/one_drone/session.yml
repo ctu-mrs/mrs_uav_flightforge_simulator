@@ -6,12 +6,12 @@ attach: false
 tmux_options: -f /etc/ctu-mrs/tmux.conf
 # you can modify these
 startup_window: simulator
-pre_window: export UAV_NAME=uav1; export USE_SIM_TIME="true"; export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+pre_window: export UAV_NAME=uav1; export USE_SIM_TIME="true"; export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 windows:
-  - router:
-      layout: tiled
-      panes:
-        - ros2 run rmw_zenoh_cpp rmw_zenohd
+  # - router:
+  #     layout: tiled
+  #     panes:
+  #       - ros2 run rmw_zenoh_cpp rmw_zenohd
   - simulator:
       layout: tiled
       panes:
@@ -39,7 +39,7 @@ windows:
   - stereo:
       layout: tiled
       panes:
-        - ros2 launch mrs_uav_flightforge_simulator stereo_image_proc.launch.py namespace:=uav1/stereo
+        - ros2 launch stereo_image_proc stereo_image_proc.launch.py namespace:=uav1/stereo
   # - mapping:
   #     layout: tiled
   #     panes:
