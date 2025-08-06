@@ -920,6 +920,15 @@ void FlightforgeSimulator::timerInit() {
     rclcpp::shutdown();
   }
 
+  auto name_to_id_map = ueds_connector::WorldName::Name2Id();
+  auto it = name_to_id_map.find(flightforge_world_level_name_enum_);
+  if (it == name_to_id_map.end()) {
+    std::string error_msg = "Unknown world_name: '" + flightforge_world_level_name_enum_ + "'. Available worlds: ";
+    for (const auto& pair : name_to_id_map) {
+        error_msg += "'" + pair.first + "' ";
+    }
+    throw std::invalid_argument(error_msg);
+  }
   res = ueds_game_controller_->SwitchWorldLevel(ueds_connector::WorldName::Name2Id().at(flightforge_world_level_name_enum_));
 
   if (res) {
