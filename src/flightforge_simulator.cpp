@@ -2722,8 +2722,8 @@ void FlightforgeSimulator::fabricateCamInfo(void) {
 
   // | --------------------------- RGB -------------------------- |
 
-  rgb_camera_info_.height = rgb_width_;
-  rgb_camera_info_.width  = rgb_height_;
+  rgb_camera_info_.height = rgb_height_;
+  rgb_camera_info_.width  = rgb_width_;
 
   // distortion
   rgb_camera_info_.distortion_model = "plumb_bob";
