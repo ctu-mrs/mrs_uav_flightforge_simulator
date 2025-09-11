@@ -81,9 +81,11 @@ private:
   mrs_lib::SubscribeHandler<nav_msgs::Odometry> sh_odom_;
   mrs_lib::SubscribeHandler<sensor_msgs::Imu>   sh_imu_;
   mrs_lib::SubscribeHandler<sensor_msgs::Range> sh_range_;
+  mrs_lib::SubscribeHandler<sensor_msgs::Range> sh_distance_sensor_;
 
   void callbackOdom(const nav_msgs::Odometry::ConstPtr msg);
   void callbackImu(const sensor_msgs::Imu::ConstPtr msg);
+  void callbackDistanceSensor(const sensor_msgs::Range::ConstPtr msg);
 
   // | ----------------------- publishers ----------------------- |
 
@@ -98,6 +100,8 @@ private:
   mrs_lib::PublisherHandler<mrs_msgs::HwApiPositionCmd>            ph_position_cmd_;
   mrs_lib::PublisherHandler<mrs_msgs::TrackerCommand>              ph_tracker_cmd_;
 
+
+  mrs_lib::PublisherHandler<sensor_msgs::Range> ph_range_;
   // | ------------------------- timers ------------------------- |
 
   ros::Timer timer_main_;
@@ -176,6 +180,7 @@ void Api::initialize(const ros::NodeHandle& parent_nh, std::shared_ptr<mrs_uav_h
   param_loader.loadParam("outputs/ground_truth", (bool&)_capabilities_.produces_ground_truth);
 
   _capabilities_.produces_magnetic_field = false;
+  _capabilities_.produces_distance_sensor = true;
 
   if (!param_loader.loadedSuccessfully()) {
     ROS_ERROR("[MrsUavHwDummyApi]: Could not load all parameters!");
@@ -197,8 +202,10 @@ void Api::initialize(const ros::NodeHandle& parent_nh, std::shared_ptr<mrs_uav_h
 
   sh_imu_ = mrs_lib::SubscribeHandler<sensor_msgs::Imu>(shopts, "simulator_imu_in", &Api::callbackImu, this);
 
-  // | ----------------------- publishers ----------------------- |
+  sh_distance_sensor_ = mrs_lib::SubscribeHandler<sensor_msgs::Range>(shopts, "simulator_rangefinder_in", &Api::callbackDistanceSensor, this);
 
+  // | ----------------------- publishers ----------------------- |
+ph_range_ = mrs_lib::PublisherHandler<sensor_msgs::Range>(nh_, "mrdka_out", 10);
   if (_capabilities_.accepts_actuator_cmd) {
     ph_actuators_cmd_ = mrs_lib::PublisherHandler<mrs_msgs::HwApiActuatorCmd>(nh_, "simulator_actuators_cmd_out", 1);
   }
@@ -690,6 +697,22 @@ void Api::callbackImu(const sensor_msgs::Imu::ConstPtr msg) {
   }
 }
 
+//}
+
+/* callbackDistanceSensor() //{ */
+void Api::callbackDistanceSensor(const sensor_msgs::Range::ConstPtr msg) {
+
+  if (!is_initialized_) {
+    return;
+  }
+
+  ROS_INFO_ONCE("[Api]: getting distance sensor");
+
+  if (_capabilities_.produces_distance_sensor) {
+// ph_range_.publish(*msg);
+    common_handlers_->publishers.publishDistanceSensor(*msg);
+  }
+}
 //}
 
 // | ------------------------- timers ------------------------- |

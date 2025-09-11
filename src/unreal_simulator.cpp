@@ -1318,7 +1318,7 @@ void UnrealSimulator::timerRangefinder([[maybe_unused]] const ros::TimerEvent& e
 
     sensor_msgs::Range msg_range;
     msg_range.header.stamp    = ros::Time::now();
-    msg_range.header.frame_id = "uav" + std::to_string(i + 1) + "/fcu";
+    msg_range.header.frame_id = "uav" + std::to_string(i + 1) + "/garmin";
     msg_range.radiation_type  = 1;
     msg_range.min_range       = 0.1;
     msg_range.max_range       = 30;

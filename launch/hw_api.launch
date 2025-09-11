@@ -28,6 +28,10 @@
   <arg unless="$(arg debug)" name="launch_prefix" value="" />
 
   <group ns="$(arg UAV_NAME)">
+  
+    <!-- Static transform -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="$(arg UAV_NAME)_fcu_to_rangefinder" args="0.0 0.0 0.0 0.0 1.57 0.0 $(arg UAV_NAME)/fcu $(arg UAV_NAME)/garmin" />
+
 
     <node pkg="nodelet" type="nodelet" name="hw_api" args="$(arg nodelet) mrs_uav_hw_api/HwApiManager $(arg nodelet_manager) $(arg bond_suffix)" output="screen" launch-prefix="$(arg launch_prefix)">
 
@@ -45,7 +49,7 @@
         <!-- custom remaps -->
       <remap from="~simulator_imu_in" to="/unreal_simulator/$(arg UAV_NAME)/imu" />
       <remap from="~simulator_odom_in" to="/unreal_simulator/$(arg UAV_NAME)/odom" />
-      <remap from="~simulator_rangefinder_in" to="/unreal_simulator/$(arg UAV_NAME)/rangefinder" />
+      <remap from="~simulator_rangefinder_in" to="/$(arg UAV_NAME)/rangefinder" />
       <remap from="~simulator_actuators_cmd_out" to="/unreal_simulator/$(arg UAV_NAME)/actuators_cmd" />
       <remap from="~simulator_control_group_cmd_out" to="/unreal_simulator/$(arg UAV_NAME)/control_group_cmd" />
       <remap from="~simulator_attitude_rate_cmd_out" to="/unreal_simulator/$(arg UAV_NAME)/attitude_rate_cmd" />
