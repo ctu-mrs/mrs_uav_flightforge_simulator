@@ -15,11 +15,11 @@ windows:
   - simulator:
       layout: tiled
       panes:
-        - ros2 launch mrs_uav_flightforge_simulator flightforge_simulator.py custom_config:=./config/simulator.yaml
+        - ros2 launch mrs_uav_flightforge_simulator flightforge_simulator.launch.py custom_config:=./config/simulator.yaml
   - hw_api:
       layout: tiled
       panes:
-        - ros2 launch mrs_uav_flightforge_simulator hw_api.py
+        - ros2 launch mrs_uav_flightforge_simulator hw_api.launch.py
   - status:
       layout: tiled
       panes:
@@ -27,11 +27,11 @@ windows:
   - core:
       layout: tiled
       panes:
-        - ros2 launch mrs_uav_core core.py platform_config:=./config/platform_config.yaml world_config:=./config/world_config.yaml custom_config:=./config/custom_config.yaml network_config:=./config/network_config.yaml
+        - ros2 launch mrs_uav_core core.launch.py platform_config:=./config/platform_config.yaml world_config:=./config/world_config.yaml custom_config:=./config/custom_config.yaml network_config:=./config/network_config.yaml
   - takeoff:
       layout: tiled
       panes:
-        - ros2 launch mrs_uav_autostart automatic_start.py custom_config:=./config/automatic_start.yaml
+        - ros2 launch mrs_uav_autostart automatic_start.launch.py custom_config:=./config/automatic_start.yaml
   - commands:
       layout: tiled
       panes:
