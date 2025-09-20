@@ -921,11 +921,11 @@ void FlightforgeSimulator::timerInit() {
   }
 
   auto name_to_id_map = ueds_connector::WorldName::Name2Id();
-  auto it = name_to_id_map.find(flightforge_world_level_name_enum_);
+  auto it             = name_to_id_map.find(flightforge_world_level_name_enum_);
   if (it == name_to_id_map.end()) {
     std::string error_msg = "Unknown world_name: '" + flightforge_world_level_name_enum_ + "'. Available worlds: ";
     for (const auto& pair : name_to_id_map) {
-        error_msg += "'" + pair.first + "' ";
+      error_msg += "'" + pair.first + "' ";
     }
     throw std::invalid_argument(error_msg);
   }
@@ -2564,18 +2564,18 @@ void FlightforgeSimulator::publishStaticTfs(void) {
       // | ------------- print the tf matrix for kalibr ------------- |
 
       RCLCPP_INFO(node_->get_logger(), "RGB camera-imu chain for kalibr config:");
-      printf("cam0:\n");
-      printf("  T_imu_cam:\n");
-      printf("    - [%f, %f, %f, %f]\n", final_tf(0, 0), final_tf(0, 1), final_tf(0, 2), tf.transform.translation.x);
-      printf("    - [%f, %f, %f, %f]\n", final_tf(1, 0), final_tf(1, 1), final_tf(1, 2), tf.transform.translation.y);
-      printf("    - [%f, %f, %f, %f]\n", final_tf(2, 0), final_tf(2, 1), final_tf(2, 2), tf.transform.translation.z);
-      printf("    - [%f, %f, %f, %f]\n", 0.0, 0.0, 0.0, 1.0);
-      printf("  cam_overlaps: [0]\n");
-      printf("  camera_model: pinhole\n");
-      printf("  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]\n");
-      printf("  distortion_model: radtan\n");
-      printf("  intrinsics: [%f, %f, %f, %f]\n", rgb_camera_info_.k[0], rgb_camera_info_.k[4], rgb_camera_info_.k[2], rgb_camera_info_.k[5]);
-      printf("  resolution: [%d, %d]\n", rgb_width_, rgb_height_);
+      RCLCPP_INFO(node_->get_logger(), "cam0:\n");
+      RCLCPP_INFO(node_->get_logger(), "  T_imu_cam:\n");
+      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(0, 0), final_tf(0, 1), final_tf(0, 2), tf.transform.translation.x);
+      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(1, 0), final_tf(1, 1), final_tf(1, 2), tf.transform.translation.y);
+      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(2, 0), final_tf(2, 1), final_tf(2, 2), tf.transform.translation.z);
+      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", 0.0, 0.0, 0.0, 1.0);
+      RCLCPP_INFO(node_->get_logger(), "  cam_overlaps: [0]\n");
+      RCLCPP_INFO(node_->get_logger(), "  camera_model: pinhole\n");
+      RCLCPP_INFO(node_->get_logger(), "  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]\n");
+      RCLCPP_INFO(node_->get_logger(), "  distortion_model: radtan\n");
+      RCLCPP_INFO(node_->get_logger(), "  intrinsics: [%f, %f, %f, %f]\n", rgb_camera_info_.k[0], rgb_camera_info_.k[4], rgb_camera_info_.k[2], rgb_camera_info_.k[5]);
+      RCLCPP_INFO(node_->get_logger(), "  resolution: [%d, %d]\n", rgb_width_, rgb_height_);
     }
 
     /* // | ----------------------- stereo left ---------------------- | */
@@ -2607,19 +2607,19 @@ void FlightforgeSimulator::publishStaticTfs(void) {
 
       // | ------------- print the tf matrix for kalibr ------------- |
 
-      RCLCPP_INFO(node_->get_logger(), "Stereo left camera-imu chain for kalibr config:");
-      printf("cam0:\n");
-      printf("  T_imu_cam:\n");
-      printf("    - [%f, %f, %f, %f]\n", final_tf(0, 0), final_tf(0, 1), final_tf(0, 2), tf.transform.translation.x);
-      printf("    - [%f, %f, %f, %f]\n", final_tf(1, 0), final_tf(1, 1), final_tf(1, 2), tf.transform.translation.y);
-      printf("    - [%f, %f, %f, %f]\n", final_tf(2, 0), final_tf(2, 1), final_tf(2, 2), tf.transform.translation.z);
-      printf("    - [%f, %f, %f, %f]\n", 0.0, 0.0, 0.0, 1.0);
-      printf("  cam_overlaps: [0]\n");
-      printf("  camera_model: pinhole\n");
-      printf("  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]\n");
-      printf("  distortion_model: radtan\n");
-      printf("  intrinsics: [%f, %f, %f, %f]\n", stereo_camera_info_.k[0], stereo_camera_info_.k[4], stereo_camera_info_.k[2], stereo_camera_info_.k[5]);
-      printf("  resolution: [%d, %d]\n", stereo_width_, stereo_height_);
+      RCLCPP_INFO(node_->get_logger(), "[uav%d]: Stereo left camera-imu chain for kalibr config:", int(i + 1));
+      RCLCPP_INFO(node_->get_logger(), "cam0:\n");
+      RCLCPP_INFO(node_->get_logger(), "  T_imu_cam:\n");
+      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(0, 0), final_tf(0, 1), final_tf(0, 2), tf.transform.translation.x);
+      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(1, 0), final_tf(1, 1), final_tf(1, 2), tf.transform.translation.y);
+      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(2, 0), final_tf(2, 1), final_tf(2, 2), tf.transform.translation.z);
+      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", 0.0, 0.0, 0.0, 1.0);
+      RCLCPP_INFO(node_->get_logger(), "  cam_overlaps: [0]\n");
+      RCLCPP_INFO(node_->get_logger(), "  camera_model: pinhole\n");
+      RCLCPP_INFO(node_->get_logger(), "  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]\n");
+      RCLCPP_INFO(node_->get_logger(), "  distortion_model: radtan\n");
+      RCLCPP_INFO(node_->get_logger(), "  intrinsics: [%f, %f, %f, %f]\n", stereo_camera_info_.k[0], stereo_camera_info_.k[4], stereo_camera_info_.k[2], stereo_camera_info_.k[5]);
+      RCLCPP_INFO(node_->get_logger(), "  resolution: [%d, %d]\n", stereo_width_, stereo_height_);
     }
 
     {
@@ -2649,19 +2649,19 @@ void FlightforgeSimulator::publishStaticTfs(void) {
 
       // | ------------- print the tf matrix for kalibr ------------- |
 
-      RCLCPP_INFO(node_->get_logger(), "Stereo right camera-imu chain for kalibr config:");
-      printf("cam0:\n");
-      printf("  T_imu_cam:\n");
-      printf("    - [%f, %f, %f, %f]\n", final_tf(0, 0), final_tf(0, 1), final_tf(0, 2), tf.transform.translation.x);
-      printf("    - [%f, %f, %f, %f]\n", final_tf(1, 0), final_tf(1, 1), final_tf(1, 2), tf.transform.translation.y);
-      printf("    - [%f, %f, %f, %f]\n", final_tf(2, 0), final_tf(2, 1), final_tf(2, 2), tf.transform.translation.z);
-      printf("    - [%f, %f, %f, %f]\n", 0.0, 0.0, 0.0, 1.0);
-      printf("  cam_overlaps: [0]\n");
-      printf("  camera_model: pinhole\n");
-      printf("  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]\n");
-      printf("  distortion_model: radtan\n");
-      printf("  intrinsics: [%f, %f, %f, %f]\n", stereo_camera_info_.k[0], stereo_camera_info_.k[4], stereo_camera_info_.k[2], stereo_camera_info_.k[5]);
-      printf("  resolution: [%d, %d]\n", stereo_width_, stereo_height_);
+      RCLCPP_INFO(node_->get_logger(), "[uav%d]: Stereo right camera-imu chain for kalibr config:", int(i + 1));
+      RCLCPP_INFO(node_->get_logger(), "cam0:\n");
+      RCLCPP_INFO(node_->get_logger(), "  T_imu_cam:\n");
+      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(0, 0), final_tf(0, 1), final_tf(0, 2), tf.transform.translation.x);
+      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(1, 0), final_tf(1, 1), final_tf(1, 2), tf.transform.translation.y);
+      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(2, 0), final_tf(2, 1), final_tf(2, 2), tf.transform.translation.z);
+      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", 0.0, 0.0, 0.0, 1.0);
+      RCLCPP_INFO(node_->get_logger(), "  cam_overlaps: [0]\n");
+      RCLCPP_INFO(node_->get_logger(), "  camera_model: pinhole\n");
+      RCLCPP_INFO(node_->get_logger(), "  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]\n");
+      RCLCPP_INFO(node_->get_logger(), "  distortion_model: radtan\n");
+      RCLCPP_INFO(node_->get_logger(), "  intrinsics: [%f, %f, %f, %f]\n", stereo_camera_info_.k[0], stereo_camera_info_.k[4], stereo_camera_info_.k[2], stereo_camera_info_.k[5]);
+      RCLCPP_INFO(node_->get_logger(), "  resolution: [%d, %d]\n", stereo_width_, stereo_height_);
     }
 
 
@@ -2706,7 +2706,7 @@ rclcpp::Time FlightforgeSimulator::flightforgeTimeToSimtime(const double flightf
     return rclcpp::Time(0, 0, clock_->get_clock_type());
   }
 
-  const double secs = floor(sim_time);
+  const double secs     = floor(sim_time);
   const double nanosecs = (sim_time - secs) * 1e9;
 
   return rclcpp::Time(secs, nanosecs, clock_->get_clock_type());
