@@ -40,18 +40,11 @@ windows:
       layout: tiled
       panes:
         - ros2 launch mrs_uav_autostart automatic_start.launch.py custom_config:=./config/automatic_start.yaml
-  - commands:
-      layout: tiled
-      panes:
         - waitForCore; ./takeoff.sh
   - stereo:
       layout: tiled
       panes:
         - ros2 launch stereo_image_proc stereo_image_proc.launch.py namespace:=uav1/stereo
-  - goto:
-      layout: tiled
-      panes:
-        - 'history -s ros2 service call /$UAV_NAME/octomap_planner/goto mrs_msgs/srv/Vec4 "goal: {x: 0.0, y: 60.0, z: 2.0, w: 0.0}"'
   - rviz:
       layout: tiled
       panes:
