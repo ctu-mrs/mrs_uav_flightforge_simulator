@@ -88,14 +88,16 @@ mrs_uav_flightforge_simulator:
       horizontal_rays: 128 # [-]
       vertical_rays: 64 # [-]
 
-      offset_x: 0.0 # [m]
-      offset_y: 0.0 # [m]
-      offset_z: 0.06 # [m]
+      offset:
+        x: 0.0 # [m]
+        y: 0.0 # [m]
+        z: 0.1 # [m]
 
-      # TODO which Tait-Bryan convention is it in?
-      rotation_pitch: 0.0 # [deg]
-      rotation_roll: 0.0 # [deg]
-      rotation_yaw: 0.0 # [deg]
+      # TODO which convention?
+      rotation:
+        pitch: 0.0 # [deg]
+        roll: 0.0 # [deg]
+        yaw: 0.0 # [deg]
 
       beam_length: 20.0 # [m]
 
@@ -144,14 +146,16 @@ mrs_uav_flightforge_simulator:
       height: 480 # [px]
       fov: 120.0 # [deg]
 
-      offset_x: 0.14 # [m]
-      offset_y: 0.0 # [m]
-      offset_z: 0.0 # [m]
+      offset:
+        x: 0.14 # [m]
+        y: 0.0 # [m]
+        z: 0.0 # [m]
 
       # TODO which Tait-Bryan convention is it in?
-      rotation_pitch: 0.0 # [deg]
-      rotation_yaw: 0.0 # [deg]
-      rotation_roll: 0.0 # [deg]
+      rotation:
+        pitch: 0.0 # [deg]
+        yaw: 0.0 # [deg]
+        roll: 0.0 # [deg]
 
       enable_motion_blur: true
       motion_blur_amount: 0.5 # [0.0 - 1.0]
@@ -181,14 +185,16 @@ mrs_uav_flightforge_simulator:
       height: 480 # [px]
       fov: 90.0 # [deg]
 
-      offset_x: 0.14 # [m]
-      offset_y: 0.0 # [m]
-      offset_z: 0.0 # [m]
+      offset:
+        x: 0.14 # [m]
+        y: 0.0 # [m]
+        z: 0.0 # [m]
 
       # TODO which Tait-Bryan convention is it in?
-      rotation_pitch: 20.0 # [deg]
-      rotation_yaw: 0.0 # [deg]
-      rotation_roll: 0.0 # [deg]
+      rotation:
+        pitch: 20.0 # [deg]
+        yaw: 0.0 # [deg]
+        roll: 0.0 # [deg]
 
 # randomization of the initial conditions around the desired spawn point
 randomization:

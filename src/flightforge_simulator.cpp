@@ -609,7 +609,6 @@ private:
 
   std::default_random_engine rng;
 
-
   // | ----------------------- Dynamic params TODO: fix this mess ---------------------- |
 
   double lidar_horizontal_fov_left_  = 180.0;
@@ -620,7 +619,7 @@ private:
   int    lidar_vertical_rays_        = 256;
   double lidar_offset_x_             = 0.0;
   double lidar_offset_y_             = 0.0;
-  double lidar_offset_z_             = 1.0;
+  double lidar_offset_z_             = 0.0;
   double lidar_rotation_pitch_       = 0.0;
   double lidar_rotation_roll_        = 0.0;
   double lidar_rotation_yaw_         = 0.0;
@@ -628,11 +627,10 @@ private:
   bool   lidar_show_beams_           = false;
   bool   lidar_livox_                = false;
 
-
   int    rgb_width_                  = 640;
   int    rgb_height_                 = 480;
   double rgb_fov_                    = 120.0;
-  double rgb_offset_x_               = 0.14;
+  double rgb_offset_x_               = 0.0;
   double rgb_offset_y_               = 0.0;
   double rgb_offset_z_               = 0.0;
   double rgb_rotation_pitch_         = 0.0;
@@ -649,10 +647,10 @@ private:
   int    stereo_width_              = 640;
   int    stereo_height_             = 480;
   double stereo_fov_                = 90.0;
-  double stereo_offset_x_           = 0.14;
+  double stereo_offset_x_           = 0.0;
   double stereo_offset_y_           = 0.0;
   double stereo_offset_z_           = 0.0;
-  double stereo_rotation_pitch_     = 20.0;
+  double stereo_rotation_pitch_     = 0.0;
   double stereo_rotation_yaw_       = 0.0;
   double stereo_rotation_roll_      = 0.0;
   bool   stereo_enable_hdr_         = true;
@@ -773,9 +771,13 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "sensors/lidar/horizontal_rays", lidar_horizontal_rays_);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/vertical_rays", lidar_vertical_rays_);
 
-  param_loader.loadParam(yaml_prefix + "sensors/lidar/rotation_pitch", lidar_rotation_pitch_);
-  param_loader.loadParam(yaml_prefix + "sensors/lidar/rotation_roll", lidar_rotation_roll_);
-  param_loader.loadParam(yaml_prefix + "sensors/lidar/rotation_yaw", lidar_rotation_yaw_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/offset/x", lidar_offset_x_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/offset/y", lidar_offset_y_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/offset/z", lidar_offset_z_);
+
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/rotation/pitch", lidar_rotation_pitch_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/rotation/roll", lidar_rotation_roll_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/rotation/yaw", lidar_rotation_yaw_);
 
   param_loader.loadParam(yaml_prefix + "sensors/lidar/beam_length", lidar_beam_length_);
 
@@ -806,13 +808,13 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "sensors/rgb/height", rgb_height_);
   param_loader.loadParam(yaml_prefix + "sensors/rgb/fov", rgb_fov_);
 
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/offset_x", rgb_offset_x_);
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/offset_y", rgb_offset_y_);
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/offset_z", rgb_offset_z_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/offset/x", rgb_offset_x_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/offset/y", rgb_offset_y_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/offset/z", rgb_offset_z_);
 
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/rotation_pitch", rgb_rotation_pitch_);
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/rotation_roll", rgb_rotation_roll_);
-  param_loader.loadParam(yaml_prefix + "sensors/rgb/rotation_yaw", rgb_rotation_yaw_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/rotation/pitch", rgb_rotation_pitch_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/rotation/roll", rgb_rotation_roll_);
+  param_loader.loadParam(yaml_prefix + "sensors/rgb/rotation/yaw", rgb_rotation_yaw_);
 
   dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/enable_hdr", &drs_params_.rgb_enable_hdr);
   dynparam_mgr_->register_param(yaml_prefix + "sensors/rgb/enable_temporal_aa", &drs_params_.rgb_enable_temporal_aa);
@@ -836,13 +838,13 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "sensors/stereo/height", stereo_height_);
   param_loader.loadParam(yaml_prefix + "sensors/stereo/fov", stereo_fov_);
 
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/offset_x", stereo_offset_x_);
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/offset_y", stereo_offset_y_);
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/offset_z", stereo_offset_z_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/offset/x", stereo_offset_x_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/offset/y", stereo_offset_y_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/offset/z", stereo_offset_z_);
 
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation_pitch", stereo_rotation_pitch_);
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation_roll", stereo_rotation_roll_);
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation_yaw", stereo_rotation_yaw_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation/pitch", stereo_rotation_pitch_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation/roll", stereo_rotation_roll_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation/yaw", stereo_rotation_yaw_);
 
   param_loader.loadParam(yaml_prefix + "weather_type", weather_type_);
   param_loader.loadParam(yaml_prefix + "graphics_settings", flightforge_graphics_settings_enum_);
