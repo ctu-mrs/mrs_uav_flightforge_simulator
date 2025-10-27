@@ -28,7 +28,7 @@
 ```bash
 sudo apt install ros-jazzy-mrs-uav-flightforge-simulator
 ```
-3. Download the and unpack [MRS FlightForge simulator](https://nasmrs.felk.cvut.cz/index.php/s/MnGARsSwnpeVy5z)
+3. Download the and unpack [MRS FlightForge simulator](https://nasmrs.fel.cvut.cz/index.php/s/MnGARsSwnpeVy5z)
 4. Launch the FlightForge Simulator by `./mrs_flight_forge.sh`. Alternatively, start it in a headless mode via `./mrs_flight_forge.sh -RenderOffscreen`.
 6. Start the MRS UAV System FlightForge endpoint
 ```bash
