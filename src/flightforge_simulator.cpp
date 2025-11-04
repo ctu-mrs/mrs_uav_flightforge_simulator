@@ -778,6 +778,8 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "sensors/lidar/rotation/yaw", lidar_rotation_yaw_);
 
   param_loader.loadParam(yaml_prefix + "sensors/lidar/beam_length", lidar_beam_length_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/livox", lidar_livox_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/show_beams", lidar_show_beams_);
 
   dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/noise/enabled", &drs_params_.lidar_noise_enabled);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/noise/std_at_1m", drs_params_.lidar_std_at_1m);
