@@ -28,7 +28,7 @@
 ```bash
 sudo apt install ros-noetic-mrs-uav-unreal-simulation
 ```
-3. Download the and unpack [MRS FlightForge simulator](https://nasmrs.felk.cvut.cz/index.php/s/MnGARsSwnpeVy5z)
+3. Download the and unpack [MRS FlightForge simulator](https://nasmrs.fel.cvut.cz/index.php/s/MnGARsSwnpeVy5z)
 4. Launch the FlightForge Simulator by `./mrs_flight_forge.sh`. Alternatively, start it in a headless mode via `./mrs_flight_forge.sh -RenderOffscreen`.
 6. Start the MRS UAV System FlightForge endpoint
 ```bash
@@ -59,7 +59,7 @@ hostAddressLoopback=true
 ```bash
 sudo apt install ros-noetic-mrs-uav-unreal-simulation
 ```
-7. Download and unpack the [FlightForge Simulator](https://nasmrs.felk.cvut.cz/index.php/s/MnGARsSwnpeVy5z)
+7. Download and unpack the [FlightForge Simulator](https://nasmrs.fel.cvut.cz/index.php/s/MnGARsSwnpeVy5z)
 8. Start the FlightForge Simulator
 9. Start the MRS UAV System FlightForge endpoint
 ```bash
