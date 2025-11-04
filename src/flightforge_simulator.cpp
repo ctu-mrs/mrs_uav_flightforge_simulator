@@ -209,8 +209,6 @@ private:
 
   void publishStaticTfs(void);
 
-  void publishCameraTf(const int& uav_index);
-
   void checkForCrash(void);
 
   rclcpp::Time flightforgeTimeToSimtime(const double flightforge_time);
@@ -2824,38 +2822,6 @@ void FlightforgeSimulator::fabricateCamInfo(void) {
   stereo_camera_info_.p[10] = 1.0;
   stereo_camera_info_.p[11] = 0.0;
 }
-
-//}
-
-/* publishCameraTf() //{ */
-
-/* void FlightforgeSimulator::publishCameraTf(const int& uav_index) { */
-/*   geometry_msgs::msg::TransformStamped tf; */
-/*   // | ------------------------- rgb tf ------------------------- | */
-
-/*   { */
-/*     tf.header.stamp = ros::Time::now(); */
-
-/*     tf.header.frame_id = "uav" + std::to_string(uav_index + 1) + "/fcu"; */
-/*     tf.child_frame_id  = "uav" + std::to_string(uav_index + 1) + "/rgb"; */
-
-/*     tf.transform.translation.x = rgb_offset_x_; */
-/*     tf.transform.translation.y = rgb_offset_y_; */
-/*     tf.transform.translation.z = rgb_offset_z_; */
-
-/*     Eigen::Matrix3d initial_tf = mrs_lib::AttitudeConverter(Eigen::Quaterniond(-0.5, 0.5, -0.5, 0.5)); */
-/*     Eigen::Matrix3d dynamic_tf = mrs_lib::AttitudeConverter(rgb_camera_orientations_[uav_index]); */
-/*     Eigen::Matrix3d final_tf   = dynamic_tf * initial_tf; */
-/*     tf.transform.rotation      = mrs_lib::AttitudeConverter(final_tf); */
-
-/*     try { */
-/*       dynamic_broadcaster_->sendTransform(tf); */
-/*     } */
-/*     catch (...) { */
-/*       RCLCPP_ERROR(node_->get_logger(), "could not publish rgb tf"); */
-/*     } */
-/*   } */
-/* } */
 
 //}
 
