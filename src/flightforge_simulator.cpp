@@ -39,6 +39,7 @@
 
 #include <flight_forge_connector/flight_forge_connector.h>
 #include <flight_forge_connector/game_mode_controller.h>
+#include <flight_forge_connector/serialization/serializable_shared.h>
 
 #include <pcl/point_types.h>
 #include <pcl/conversions.h>
@@ -144,10 +145,10 @@ private:
 
   std::shared_ptr<TimerType> timer_rgb_segmented_;
   void                       timerRgbSegmented();
-
+/* 
   std::shared_ptr<TimerType> timer_depth_;
   void                       timerDepth();
-
+ */
   std::shared_ptr<TimerType> timer_stereo_;
   void                       timerStereo();
 
@@ -641,16 +642,21 @@ private:
   double rgb_motion_blur_amount_     = 0.5;
   double rgb_motion_blur_distortion_ = 50.0;
 
-  double stereo_baseline_           = 0.1;
   int    stereo_width_              = 640;
   int    stereo_height_             = 480;
   double stereo_fov_                = 90.0;
-  double stereo_offset_x_           = 0.0;
-  double stereo_offset_y_           = 0.0;
-  double stereo_offset_z_           = 0.0;
-  double stereo_rotation_pitch_     = 0.0;
-  double stereo_rotation_yaw_       = 0.0;
-  double stereo_rotation_roll_      = 0.0;
+  double stereo_offset_x_left_;
+  double stereo_offset_y_left_;
+  double stereo_offset_z_left_;
+  double stereo_rotation_pitch_left_;
+  double stereo_rotation_yaw_left_;
+  double stereo_rotation_roll_left_;
+  double stereo_offset_x_right_;
+  double stereo_offset_y_right_;
+  double stereo_offset_z_right_;
+  double stereo_rotation_pitch_right_;
+  double stereo_rotation_yaw_right_;
+  double stereo_rotation_roll_right_; 
   bool   stereo_enable_hdr_         = true;
   bool   stereo_enable_temporal_aa_ = true;
   bool   stereo_enable_raytracing_  = true;
@@ -832,19 +838,23 @@ void FlightforgeSimulator::timerInit() {
   dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/enable_temporal_aa", &drs_params_.stereo_enable_temporal_aa);
   dynparam_mgr_->register_param(yaml_prefix + "sensors/stereo/enable_raytracing", &drs_params_.stereo_enable_raytracing);
 
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/baseline", stereo_baseline_);
 
   param_loader.loadParam(yaml_prefix + "sensors/stereo/width", stereo_width_);
   param_loader.loadParam(yaml_prefix + "sensors/stereo/height", stereo_height_);
   param_loader.loadParam(yaml_prefix + "sensors/stereo/fov", stereo_fov_);
 
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/offset/x", stereo_offset_x_);
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/offset/y", stereo_offset_y_);
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/offset/z", stereo_offset_z_);
-
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation/pitch", stereo_rotation_pitch_);
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation/roll", stereo_rotation_roll_);
-  param_loader.loadParam(yaml_prefix + "sensors/stereo/rotation/yaw", stereo_rotation_yaw_);
+  param_loader.loadParam(yaml_prefix +"sensors/stereo/left/offset_x", stereo_offset_x_left_);
+  param_loader.loadParam(yaml_prefix +"sensors/stereo/left/offset_y", stereo_offset_y_left_);
+  param_loader.loadParam(yaml_prefix +"sensors/stereo/left/offset_z", stereo_offset_z_left_);
+  param_loader.loadParam(yaml_prefix +"sensors/stereo/left/rotation_pitch", stereo_rotation_pitch_left_);
+  param_loader.loadParam(yaml_prefix +"sensors/stereo/left/rotation_roll", stereo_rotation_roll_left_);
+  param_loader.loadParam(yaml_prefix +"sensors/stereo/left/rotation_yaw", stereo_rotation_yaw_left_);
+  param_loader.loadParam(yaml_prefix +"sensors/stereo/right/offset_x", stereo_offset_x_right_);
+  param_loader.loadParam(yaml_prefix +"sensors/stereo/right/offset_y", stereo_offset_y_right_);
+  param_loader.loadParam(yaml_prefix +"sensors/stereo/right/offset_z", stereo_offset_z_right_);
+  param_loader.loadParam(yaml_prefix +"sensors/stereo/right/rotation_pitch", stereo_rotation_pitch_right_);
+  param_loader.loadParam(yaml_prefix +"sensors/stereo/right/rotation_roll", stereo_rotation_roll_right_);
+  param_loader.loadParam(yaml_prefix +"sensors/stereo/right/rotation_yaw", stereo_rotation_yaw_right_);
 
   param_loader.loadParam(yaml_prefix + "weather_type", weather_type_);
   param_loader.loadParam(yaml_prefix + "graphics_settings", flightforge_graphics_settings_enum_);
@@ -1104,7 +1114,7 @@ void FlightforgeSimulator::timerInit() {
       lidarConfig.FOVVertUp    = lidar_vertical_fov_up_;
       lidarConfig.FOVVertDown  = lidar_vertical_fov_down_;
       lidarConfig.beamLength   = lidar_beam_length_ * 100.0;
-      lidarConfig.offset       = ueds_connector::Coordinates(lidar_offset_x_ * 100.0, lidar_offset_y_ * 100.0, lidar_offset_z_ * 100.0);
+      lidarConfig.offset       = ueds_connector::Coordinates(lidar_offset_x_ * 100.0, -lidar_offset_y_ * 100.0, lidar_offset_z_ * 100.0);
       lidarConfig.orientation  = ueds_connector::Rotation(-lidar_rotation_pitch_, lidar_rotation_yaw_, lidar_rotation_roll_);
       lidarConfig.showBeams    = lidar_show_beams_;
       lidarConfig.Livox        = lidar_livox_;
@@ -1126,7 +1136,7 @@ void FlightforgeSimulator::timerInit() {
       cameraConfig.width_                  = rgb_width_;
       cameraConfig.height_                 = rgb_height_;
       cameraConfig.fov_                    = rgb_fov_;
-      cameraConfig.offset_                 = ueds_connector::Coordinates(rgb_offset_x_ * 100.0, rgb_offset_y_ * 100.0, rgb_offset_z_ * 100.0);
+      cameraConfig.offset_                 = ueds_connector::Coordinates(rgb_offset_x_ * 100.0, -rgb_offset_y_ * 100.0, rgb_offset_z_ * 100.0);
       cameraConfig.orientation_            = ueds_connector::Rotation(-rgb_rotation_pitch_, rgb_rotation_yaw_, rgb_rotation_roll_);
       cameraConfig.enable_raytracing_      = rgb_enable_raytracing_;
       cameraConfig.enable_hdr_             = rgb_enable_hdr_;
@@ -1150,14 +1160,26 @@ void FlightforgeSimulator::timerInit() {
     // | ---------------- set Stereo camera config ---------------- |
 
     {
-      ueds_connector::StereoCameraConfig cameraConfig{};
+      Serializable::Drone::StereoCameraConfig cameraConfig{};
 
       cameraConfig.width_              = stereo_width_;
       cameraConfig.height_             = stereo_height_;
       cameraConfig.fov_                = stereo_fov_;
-      cameraConfig.baseline_           = stereo_baseline_;
-      cameraConfig.offset_             = ueds_connector::Coordinates(stereo_offset_x_ * 100.0, stereo_offset_y_ * 100.0, stereo_offset_z_ * 100.0);
-      cameraConfig.orientation_        = ueds_connector::Rotation(-stereo_rotation_pitch_, stereo_rotation_yaw_, stereo_rotation_roll_);
+      
+      cameraConfig.offset_x_left_    = stereo_offset_x_left_ * 100.0;
+      cameraConfig.offset_y_left_    = -stereo_offset_y_left_ * 100.0;
+      cameraConfig.offset_z_left_    = stereo_offset_z_left_ * 100.0;
+      cameraConfig.rotation_pitch_left_ = -stereo_rotation_pitch_left_;
+      cameraConfig.rotation_roll_left_  = stereo_rotation_roll_left_;
+      cameraConfig.rotation_yaw_left_   = stereo_rotation_yaw_left_;
+
+      cameraConfig.offset_x_right_    = stereo_offset_x_right_ * 100.0;
+      cameraConfig.offset_y_right_    = -stereo_offset_y_right_ * 100.0;
+      cameraConfig.offset_z_right_    = stereo_offset_z_right_ * 100.0;
+      cameraConfig.rotation_pitch_right_ = -stereo_rotation_pitch_right_;
+      cameraConfig.rotation_roll_right_  = stereo_rotation_roll_right_;
+      cameraConfig.rotation_yaw_right_   = stereo_rotation_yaw_right_;
+      
       cameraConfig.enable_raytracing_  = stereo_enable_raytracing_;
       cameraConfig.enable_hdr_         = stereo_enable_hdr_;
       cameraConfig.enable_temporal_aa_ = stereo_enable_temporal_aa_;
@@ -1949,7 +1971,8 @@ void FlightforgeSimulator::timerStereo() {
 
       camera_info.header = msg_right->header;
 
-      camera_info.p[3] = -camera_info.p[0] * stereo_baseline_;
+      double stereo_baseline = stereo_offset_x_left_ - stereo_offset_x_right_;
+      camera_info.p[3] = -camera_info.p[0] * stereo_baseline;
 
       ph_stereo_right_camera_info_[i].publish(camera_info);
     }
@@ -2017,7 +2040,7 @@ void FlightforgeSimulator::timerRgbSegmented() {
 
 //}
 
-/* timerDepth() //{ */
+/* timerDepth() //{ 
 
 void FlightforgeSimulator::timerDepth() {
 
@@ -2025,7 +2048,7 @@ void FlightforgeSimulator::timerDepth() {
     return;
   }
 
-  /* mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerDepth()"); */
+  // mrs_lib::ScopeTimer timer = mrs_lib::ScopeTimer("timerDepth()"); 
 
   for (size_t i = 0; i < uavs_.size(); i++) {
 
@@ -2072,7 +2095,7 @@ void FlightforgeSimulator::timerDepth() {
 
     ph_depth_camera_info_[i].publish(camera_info);
   }
-}
+}*/
 
 //}
 
@@ -2324,7 +2347,7 @@ void FlightforgeSimulator::callbackRgbSegRate(const double& param_value) {
 
 /* callbackDepthEnable() //{ */
 
-void FlightforgeSimulator::callbackDepthEnable(const bool& param_value) {
+/* void FlightforgeSimulator::callbackDepthEnable(const bool& param_value) {
 
   RCLCPP_INFO(get_logger(), "callbackDepthEnable()");
 
@@ -2333,13 +2356,13 @@ void FlightforgeSimulator::callbackDepthEnable(const bool& param_value) {
   } else {
     timer_depth_->stop();
   }
-}
+} */
 
 //}
 
 /* callbackDepthRate() //{ */
 
-void FlightforgeSimulator::callbackDepthRate(const double& param_value) {
+/* void FlightforgeSimulator::callbackDepthRate(const double& param_value) {
 
   RCLCPP_INFO(get_logger(), "callbackDepthRate()");
 
@@ -2352,7 +2375,7 @@ void FlightforgeSimulator::callbackDepthRate(const double& param_value) {
   }
 
   RCLCPP_INFO(get_logger(), "depth rate updated to %.2f Hz", param_value);
-}
+} */
 
 //}
 
@@ -2588,13 +2611,13 @@ void FlightforgeSimulator::publishStaticTfs(void) {
       tf.header.frame_id = "uav" + std::to_string(i + 1) + "/fcu";
       tf.child_frame_id  = "uav" + std::to_string(i + 1) + "/stereo_left";
 
-      tf.transform.translation.x = stereo_offset_x_;
-      tf.transform.translation.y = stereo_offset_y_;
-      tf.transform.translation.z = stereo_offset_z_;
+      tf.transform.translation.x = stereo_offset_x_left_;
+      tf.transform.translation.y = stereo_offset_y_left_;
+      tf.transform.translation.z = stereo_offset_z_left_;
 
       Eigen::Matrix3d initial_tf = mrs_lib::AttitudeConverter(Eigen::Quaterniond(-0.5, 0.5, -0.5, 0.5));
 
-      Eigen::Matrix3d dynamic_tf = mrs_lib::AttitudeConverter(M_PI * (stereo_rotation_roll_ / 180.0), M_PI * (stereo_rotation_pitch_ / 180.0), M_PI * (stereo_rotation_yaw_ / 180.0));
+      Eigen::Matrix3d dynamic_tf = mrs_lib::AttitudeConverter(M_PI * (stereo_rotation_roll_left_ / 180.0), M_PI * (stereo_rotation_pitch_left_ / 180.0), M_PI * (stereo_rotation_yaw_left_ / 180.0));
 
       Eigen::Matrix3d final_tf = dynamic_tf * initial_tf;
 
@@ -2630,13 +2653,13 @@ void FlightforgeSimulator::publishStaticTfs(void) {
       tf.header.frame_id = "uav" + std::to_string(i + 1) + "/fcu";
       tf.child_frame_id  = "uav" + std::to_string(i + 1) + "/stereo_right";
 
-      tf.transform.translation.x = stereo_offset_x_;
-      tf.transform.translation.y = stereo_offset_y_ - stereo_baseline_;
-      tf.transform.translation.z = stereo_offset_z_;
+      tf.transform.translation.x = stereo_offset_x_right_;
+      tf.transform.translation.y = stereo_offset_y_right_;
+      tf.transform.translation.z = stereo_offset_z_right_;
 
       Eigen::Matrix3d initial_tf = mrs_lib::AttitudeConverter(Eigen::Quaterniond(-0.5, 0.5, -0.5, 0.5));
 
-      Eigen::Matrix3d dynamic_tf = mrs_lib::AttitudeConverter(M_PI * (stereo_rotation_roll_ / 180.0), M_PI * (stereo_rotation_pitch_ / 180.0), M_PI * (stereo_rotation_yaw_ / 180.0));
+      Eigen::Matrix3d dynamic_tf = mrs_lib::AttitudeConverter(M_PI * (stereo_rotation_roll_right_ / 180.0), M_PI * (stereo_rotation_pitch_right_ / 180.0), M_PI * (stereo_rotation_yaw_right_ / 180.0));
 
       Eigen::Matrix3d final_tf = dynamic_tf * initial_tf;
 
