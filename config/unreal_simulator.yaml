@@ -152,34 +152,42 @@ sensors:
       enabled: false
       rate: 5.0 # [Hz]
 
-    depth:
-      enabled: false
-      rate: 10.0 # [Hz]    
-
   stereo:
 
     enabled: false
 
     rate: 10.0 # [Hz]
 
-    enable_hdr: true
-    enable_temporal_aa: true
-    enable_raytracing: true
-
-    baseline: 0.1 # [m]
-
     width: 640 # [px]
     height: 480 # [px]
     fov: 90.0 # [deg]
 
-    offset_x: 0.14 # [m]
-    offset_y: 0.0 # [m]
-    offset_z: 0.0 # [m]
+    # Left camera configuration
+    left: 
+      offset_x: 0.0 # [m]
+      offset_y: 0.0375 # [m]
+      offset_z: 0.0 # [m]
 
-    # TODO which Tait-Bryan convention is it in?
-    rotation_pitch: 20.0 # [deg]
-    rotation_yaw: 0.0 # [deg]
-    rotation_roll: 0.0 # [deg]
+      # TODO which Tait-Bryan convention is it in?
+      rotation_pitch: 20.0 # [deg]
+      rotation_yaw: 0.0 # [deg]
+      rotation_roll: 0.0 # [deg]
+
+    # Right camera configuration
+    right:
+      offset_x: 0.0 # [m]
+      offset_y: -0.0375 # [m]
+      offset_z: 0.0 # [m]
+
+      # TODO which Tait-Bryan convention is it in?
+      rotation_pitch: 20.0 # [deg]
+      rotation_yaw: 0.0 # [deg]
+      rotation_roll: 0.0 # [deg]
+
+    enable_hdr: true
+    enable_temporal_aa: true
+    enable_raytracing: true
+
 
 frames:
   world:

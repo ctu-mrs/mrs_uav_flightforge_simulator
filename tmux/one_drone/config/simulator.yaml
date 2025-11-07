@@ -52,8 +52,6 @@ sensors:
     rgb_segmented:
       enabled: false 
       rate: 10.0 # [Hz]
-    depth:
-      enabled: true 
-
+   
   stereo:
     enabled: true
