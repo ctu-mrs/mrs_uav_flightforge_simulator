@@ -91,7 +91,7 @@ mrs_uav_flightforge_simulator:
       offset:
         x: 0.0 # [m]
         y: 0.0 # [m]
-        z: 0.1 # [m]
+        z: 0.25 # [m]
 
       # TODO which convention?
       rotation:
