@@ -1,0 +1,13 @@
+<launch>
+
+  <arg name="UAV_NAME" default="$(env UAV_NAME)" />
+
+  <group ns="/$(arg UAV_NAME)/stereo">
+
+    <node pkg="mrs_uav_unreal_simulation" type="disparity_to_depth.py" name="disparity_to_depth" output="screen">
+      <remap from="depth/image_rect" to="/$(arg UAV_NAME)/front_rgbd/aligned_depth_to_color/image_raw"/>
+    </node>
+
+  </group>
+
+</launch>
