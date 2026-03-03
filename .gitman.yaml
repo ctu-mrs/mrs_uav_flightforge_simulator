@@ -18,7 +18,7 @@ groups:
 sources_locked:
   - repo: https://github.com/ctu-mrs/mrs_flight_forge_connector.git
     name: mrs_flight_forge_connector
-    rev: 8d0f3defa7bf624342b393357e26859d30ef5001
+    rev: 06e5edb8fed36f2ea608f4846d757a6e817f1802
     type: git
     params:
     sparse_paths:
