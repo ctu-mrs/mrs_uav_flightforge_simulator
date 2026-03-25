@@ -249,8 +249,6 @@ private:
     bool   dynamic_rtf     = false;
     bool   paused          = false;
 
-    // TODO load collisions params
-    // TODO implement mutual collisions
     bool world_collisions_enabled = true;
     bool   collisions_enabled  = false;
     bool   collisions_crash    = false;
@@ -887,6 +885,8 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "daytime/hour", daytime_hour_);
   param_loader.loadParam(yaml_prefix + "daytime/minute", daytime_minute_);
   param_loader.loadParam(yaml_prefix + "world_name", flightforge_world_level_name_enum_);
+
+  /* param_loader.loadParam(yaml_prefix + "world_collisions/enabled", world_collisions */
 
   if (!param_loader.loadedSuccessfully() || !dynparam_mgr_->loaded_successfully()) {
     RCLCPP_ERROR(node_->get_logger(), "could not load all parameters!");
@@ -2607,36 +2607,36 @@ void FlightforgeSimulator::checkForCrash(void) {
 
       auto [res, crashed] = ueds_connectors_[i]->GetCrashState();
 
-      /* if the uav has crashed check the rangefinder data to determine if its not just a landing */
-      if (crashed) {
-        bool   res_range;
-        double range;
-        {
-          std::scoped_lock lock(mutex_flightforge_);
+      /* if the uav has crashed check the rangefinder data to determine if its not just a landing *//*//{*/
+      /* if (crashed) { */
+      /*   bool   res_range; */
+      /*   double range; */
+      /*   { */
+      /*     std::scoped_lock lock(mutex_flightforge_); */
 
-          std::tie(res_range, range) = ueds_connectors_[i]->GetRangefinderData();
-        }
+      /*     std::tie(res_range, range) = ueds_connectors_[i]->GetRangefinderData(); */
+      /*   } */
 
-        /* if (res_range && range < 0.1) { */
-        /*   crashed = false; */
-        /*   if (set_ground_z_clients_[i].exists()) { */
-        /*     mrs_msgs::Float64Srv srv; */
-        /*     // set the ground_z to the current position */
-        /*     srv.request.value = uavs_[i]->getState().x.z(); */
-        /*     if (set_ground_z_clients_[i].call(srv)) { */
-        /*       if (srv.response.success) { */
-        /*         RCLCPP_INFO(node_->get_logger(), "Successfully set ground_z for uav%lu to ", i + 1 ); */
-        /*       } else { */
-        /*         RCLCPP_ERROR(node_->get_logger(), "Failed to set ground_z for uav%lu: %s", i + 1, srv.response.message.c_str()); */
-        /*       } */
-        /*     } else { */
-        /*       RCLCPP_ERROR(node_->get_logger(), "Failed to call set_ground_z service for uav%lu", i + 1); */
-        /*     } */
-        /*   } else { */
-        /*     RCLCPP_WARN(node_->get_logger(), "Set_ground_z service for uav%lu does not exist", i + 1); */
-        /*   } */
-        /* } */
-      }
+      /*   /1* if (res_range && range < 0.1) { *1/ */
+      /*   /1*   crashed = false; *1/ */
+      /*   /1*   if (set_ground_z_clients_[i].exists()) { *1/ */
+      /*   /1*     mrs_msgs::Float64Srv srv; *1/ */
+      /*   /1*     // set the ground_z to the current position *1/ */
+      /*   /1*     srv.request.value = uavs_[i]->getState().x.z(); *1/ */
+      /*   /1*     if (set_ground_z_clients_[i].call(srv)) { *1/ */
+      /*   /1*       if (srv.response.success) { *1/ */
+      /*   /1*         RCLCPP_INFO(node_->get_logger(), "Successfully set ground_z for uav%lu to ", i + 1 ); *1/ */
+      /*   /1*       } else { *1/ */
+      /*   /1*         RCLCPP_ERROR(node_->get_logger(), "Failed to set ground_z for uav%lu: %s", i + 1, srv.response.message.c_str()); *1/ */
+      /*   /1*       } *1/ */
+      /*   /1*     } else { *1/ */
+      /*   /1*       RCLCPP_ERROR(node_->get_logger(), "Failed to call set_ground_z service for uav%lu", i + 1); *1/ */
+      /*   /1*     } *1/ */
+      /*   /1*   } else { *1/ */
+      /*   /1*     RCLCPP_WARN(node_->get_logger(), "Set_ground_z service for uav%lu does not exist", i + 1); *1/ */
+      /*   /1*   } *1/ */
+      /*   /1* } *1/ */
+      /* } *//*//}*/
 
       if (!res) {
         RCLCPP_ERROR_THROTTLE(node_->get_logger(), *clock_, 1000, "Failed to obtain crash state for uav%lu", i + 1);
