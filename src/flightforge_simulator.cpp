@@ -2069,7 +2069,7 @@ void FlightforgeSimulator::timerStereo() {
 
       camera_info.header = msg_right->header;
 
-      double stereo_baseline = stereo_offset_x_left_ - stereo_offset_x_right_;
+      double stereo_baseline = std::abs(stereo_offset_y_left_ - stereo_offset_y_right_);
       camera_info.p[3]       = -camera_info.p[0] * stereo_baseline;
 
       ph_stereo_right_camera_info_[i].publish(camera_info);

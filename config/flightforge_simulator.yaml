@@ -182,7 +182,7 @@ mrs_uav_flightforge_simulator:
 
       # Left camera configuration
       left: 
-        offset_x: 0.0 # [m]
+        offset_x: 0.3 # [m]
         offset_y: 0.0375 # [m]
         offset_z: 0.0 # [m]
 
@@ -193,7 +193,7 @@ mrs_uav_flightforge_simulator:
 
       # Right camera configuration
       right:
-        offset_x: 0.0 # [m]
+        offset_x: 0.3 # [m]
         offset_y: -0.0375 # [m]
         offset_z: 0.0 # [m]
 
