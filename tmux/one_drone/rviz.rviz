@@ -233,7 +233,7 @@ Visualization Manager:
             Durability Policy: Volatile
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /uav1/control_manager/safety_area_markers
+            Value: /uav1/safety_area_manager/static_markers
           Value: true
         - Class: rviz_default_plugins/MarkerArray
           Enabled: true
@@ -245,7 +245,7 @@ Visualization Manager:
             Durability Policy: Volatile
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /uav1/control_manager/safety_area_coordinates_markers
+            Value: /uav1/safety_area_manager/static_markers_coordinates
           Value: true
         - Class: rviz_common/Group
           Displays:
