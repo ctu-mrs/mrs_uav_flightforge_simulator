@@ -9,3 +9,8 @@ mrs_uav_managers:
 
     initial_state_estimator: "gps_baro" # will be used as the first state estimator
     agl_height_estimator: "garmin_agl" # only slightly filtered height for checking min height (not used in control feedback)
+
+mrs_uav_autostart:
+
+  # countdown between entering offboard and the takeoff (default 5 s)
+  takeoff_countdown: 1.0 # [s]
