@@ -87,6 +87,7 @@ private:
   rclcpp::CallbackGroup::SharedPtr cbgrp_main_;
   rclcpp::CallbackGroup::SharedPtr cbgrp_sensors_;
   rclcpp::CallbackGroup::SharedPtr cbgrp_status_;
+  rclcpp::CallbackGroup::SharedPtr cbgrp_unreal_sync_;
 
   rclcpp::TimerBase::SharedPtr timer_init_;
   void                         timerInit();
@@ -690,8 +691,10 @@ void FlightforgeSimulator::timerInit() {
 
   RCLCPP_INFO(node_->get_logger(), "initializing");
 
-  cbgrp_main_   = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-  cbgrp_status_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  cbgrp_main_        = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  cbgrp_status_      = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  // the 400 Hz pose sync blocks on a game round trip and would starve the 1 Hz time sync
+  cbgrp_unreal_sync_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
   mrs_lib::ParamLoader param_loader(node_, node_->get_name());
 
@@ -1257,7 +1260,7 @@ void FlightforgeSimulator::timerInit() {
   timer_time_sync_ = node_->create_wall_timer(std::chrono::duration<double>(1.0), std::bind(&FlightforgeSimulator::timerTimeSync, this), cbgrp_status_);
 
   timer_unreal_sync_ =
-      node_->create_wall_timer(std::chrono::duration<double>(1.0 / _clock_rate_), std::bind(&FlightforgeSimulator::timerUnrealSync, this), cbgrp_status_);
+      node_->create_wall_timer(std::chrono::duration<double>(1.0 / _clock_rate_), std::bind(&FlightforgeSimulator::timerUnrealSync, this), cbgrp_unreal_sync_);
 
   mrs_lib::TimerHandlerOptions timer_opts_sensors;
 
