@@ -157,7 +157,7 @@ void Api::initialize(const rclcpp::Node::SharedPtr& node, std::shared_ptr<mrs_ua
 
   common_handlers_ = common_handlers;
 
-  _capabilities_.api_name = "MrsSimulator";
+  _capabilities_.api_name = "FlightforgeApi";
 
   _uav_name_         = common_handlers->getUavName();
   _body_frame_name_  = common_handlers->getBodyFrameName();
