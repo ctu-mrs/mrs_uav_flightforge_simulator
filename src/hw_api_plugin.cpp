@@ -199,9 +199,13 @@ void Api::initialize(const rclcpp::Node::SharedPtr& node, std::shared_ptr<mrs_ua
 
   sh_odom_ = mrs_lib::SubscriberHandler<nav_msgs::msg::Odometry>(shopts, "~/simulator_odom_in", &Api::callbackOdom, this);
 
-  sh_imu_ = mrs_lib::SubscriberHandler<sensor_msgs::msg::Imu>(shopts, "~/simulator_imu_in", &Api::callbackImu, this);
+  if (_capabilities_.produces_imu) {
+    sh_imu_ = mrs_lib::SubscriberHandler<sensor_msgs::msg::Imu>(shopts, "~/simulator_imu_in", &Api::callbackImu, this);
+  }
 
-  sh_range_ = mrs_lib::SubscriberHandler<sensor_msgs::msg::Range>(shopts, "~/simulator_rangefinder_in", &Api::callbackRangefinder, this);
+  if (_capabilities_.produces_distance_sensor) {
+    sh_range_ = mrs_lib::SubscriberHandler<sensor_msgs::msg::Range>(shopts, "~/simulator_rangefinder_in", &Api::callbackRangefinder, this);
+  }
 
   // | ----------------------- publishers ----------------------- |
 
@@ -789,10 +793,7 @@ void Api::callbackImu(const sensor_msgs::msg::Imu::ConstSharedPtr msg) {
 
   RCLCPP_INFO_ONCE(node_->get_logger(), "getting IMU");
 
-  if (_capabilities_.produces_imu) {
-
-    common_handlers_->publishers.publishIMU(*msg);
-  }
+  common_handlers_->publishers.publishIMU(*msg);
 }
 
 //}
@@ -807,10 +808,7 @@ void Api::callbackRangefinder(const sensor_msgs::msg::Range::ConstSharedPtr msg)
 
   RCLCPP_INFO_ONCE(node_->get_logger(), "getting rangefinder");
 
-  if (_capabilities_.produces_distance_sensor) {
-
-    common_handlers_->publishers.publishDistanceSensor(*msg);
-  }
+  common_handlers_->publishers.publishDistanceSensor(*msg);
 }
 
 //}
