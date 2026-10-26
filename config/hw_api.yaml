@@ -2,7 +2,7 @@ mrs_uav_hw_api:
 
   hw_interface_plugin: "mrs_uav_flightforge_hw_api_plugin::Api"
 
-  input_mode:
+  inputs:
     actuators:             false
     control_group:         false
     attitude_rate:         true
