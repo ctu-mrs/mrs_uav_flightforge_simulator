@@ -1,14 +1,8 @@
-hw_interface_plugin: "mrs_uav_flightforge_hw_api_plugin::Api"
-plugin:
-  gnss:
-    utm_zone: "32U"
-    utm_x: 717652.458
-    utm_y: 5355604.146
-    amsl: 460.0
-  
-  input_timeout: 1.0 # [s]
+mrs_uav_hw_api:
 
-  input_mode:
+  hw_interface_plugin: "mrs_uav_flightforge_hw_api_plugin::Api"
+
+  inputs:
     actuators:             false
     control_group:         false
     attitude_rate:         true
@@ -18,21 +12,33 @@ plugin:
     velocity_hdg_rate:     false
     velocity_hdg:          false
     position:              false
-
-    feedforward: true
+    feedforward:           false
 
   outputs:
     distance_sensor:      true
     gnss:                 true
+    gnss_status:          false # not supported
     rtk:                  true
+    ground_truth:         true
     imu:                  true
     altitude:             true
     magnetometer_heading: true
+    magnetic_field:       false # not supported
     rc_channels:          true
+    rc_rssi:              false # not supported
     battery_state:        true
     position:             true
     orientation:          true
     velocity:             true
     angular_velocity:     true
     odometry:             true
-    ground_truth:         true
+
+  plugin:
+
+    gnss:
+      utm_zone: "32U"
+      utm_x: 717652.458
+      utm_y: 5355604.146
+      amsl: 460.0
+
+    input_timeout: 1.0 # [s]
