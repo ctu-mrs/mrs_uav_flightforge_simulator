@@ -105,3 +105,10 @@ TEST(InstanceMap, KeepsTwentyFourBitIds) {
   EXPECT_EQ(m.class_ids[0], 3);
   EXPECT_EQ(m.header.stamp.sec, 1);
 }
+
+TEST(Events, LongBatchKeepsItsTiming) {
+  auto got = decodeAll(toEventPacket(events({{1, 1, 1, 0}, {2, 1, 1, 2500000}, {3, 1, 0, 4500000}}), header(1.0)));
+  ASSERT_EQ(got.size(), 3u);
+  EXPECT_EQ(got[1].t - got[0].t, 2500000ull * 1000ull);
+  EXPECT_EQ(got[2].t - got[0].t, 4500000ull * 1000ull);
+}

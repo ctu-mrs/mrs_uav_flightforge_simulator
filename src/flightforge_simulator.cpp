@@ -144,8 +144,6 @@ private:
   std::vector<std::vector<LidarSensor>>       lidars_;
   std::vector<std::vector<RangefinderSensor>> rangefinders_;
 
-  std::mt19937 rng_{std::random_device{}()};
-
   void setupSensors(size_t uav);
   void startSensorTimers(void);
   void sendStaticTf(const std::string& uav_name, const std::string& frame, const Mount& mount, bool optical, double y_shift = 0.0);
@@ -1379,10 +1377,10 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     cfg.offset_z_right_ = m.z * 100.0;
 
     cfg.rotation_pitch_left_  = -m.pitch;
-    cfg.rotation_yaw_left_    = m.yaw;
+    cfg.rotation_yaw_left_    = -m.yaw;
     cfg.rotation_roll_left_   = m.roll;
     cfg.rotation_pitch_right_ = -m.pitch;
-    cfg.rotation_yaw_right_   = m.yaw;
+    cfg.rotation_yaw_right_   = -m.yaw;
     cfg.rotation_roll_right_  = m.roll;
 
     cfg.enable_hdr_         = s.params.enable_hdr;
@@ -1780,7 +1778,8 @@ void FlightforgeSimulator::timerEvent(size_t uav, size_t i) {
     RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s dropped %u events", uav_names[uav].c_str(), s.name.c_str(), events.dropped);
   }
 
-  if (events.stamp <= s.last_stamp) {
+  // without the first time sync the stamp would be raw UE world time
+  if (events.stamp <= s.last_stamp || !mrs_lib::get_mutexed(mutex_wall_time_offset_, ue_world_offset_valid_)) {
     return;
   }
 
@@ -1828,7 +1827,7 @@ void FlightforgeSimulator::timerLidar(size_t uav, size_t i) {
   header.frame_id = s.frame;
   header.stamp    = flightforgeTimeToSimtime(scan.stamp);
 
-  const auto clouds = toLidarClouds(scan, s.params, header, rng_);
+  const auto clouds = toLidarClouds(scan, s.params, header, s.rng);
 
   if (!clouds) {
     RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s returned channels not parallel to its points, dropped", uav_names[uav].c_str(),

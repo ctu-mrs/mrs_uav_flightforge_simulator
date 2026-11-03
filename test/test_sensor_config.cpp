@@ -96,6 +96,33 @@ TEST(SensorConfig, ValidFilePasses) {
   EXPECT_EQ(validateSensorKeys({fixture("sensors_valid.yaml")}, kRoot), "");
 }
 
+std::string writeTemp(const std::string& name, const std::string& text) {
+  const auto path = std::filesystem::temp_directory_path() / name;
+  std::ofstream(path) << text;
+  return path.string();
+}
+
+TEST(SensorConfig, CustomCountOfZeroOverridesDefaultBlocks) {
+  const auto custom = writeTemp("test_sensor_config_custom.yaml", "mrs_uav_flightforge_simulator:\n  sensors:\n    lidar:\n      n_sensors: 0\n");
+  EXPECT_EQ(validateSensorKeys({custom, fixture("sensors_valid.yaml")}, kRoot), "");
+}
+
+TEST(SensorConfig, MisspeltKeyInsideABlockIsRejected) {
+  const auto custom = writeTemp("test_sensor_config_typo.yaml", "mrs_uav_flightforge_simulator:\n  sensors:\n    rgb:\n      sensor_1:\n        rat: 5.0\n");
+  EXPECT_NE(validateSensorKeys({custom, fixture("sensors_valid.yaml")}, kRoot).find("rgb/sensor_1/rat"), std::string::npos);
+}
+
+TEST(SensorConfig, MisspeltNestedKeyIsRejected) {
+  const auto custom = writeTemp("test_sensor_config_nested.yaml", "mrs_uav_flightforge_simulator:\n  sensors:\n    rgb:\n      sensor_0:\n        rotation: {pich: 5.0}\n");
+  EXPECT_NE(validateSensorKeys({custom, fixture("sensors_valid.yaml")}, kRoot).find("rgb/sensor_0/rotation/pich"), std::string::npos);
+}
+
+TEST(SensorConfig, ShippedConfigsPass) {
+  const std::string package = std::string(TEST_FIXTURES) + "/../..";
+  EXPECT_EQ(validateSensorKeys({package + "/tmux/one_drone/config/simulator.yaml", package + "/config/flightforge_simulator.yaml"}, kRoot), "");
+  EXPECT_EQ(validateSensorKeys({package + "/config/flightforge_simulator.yaml"}, kRoot), "");
+}
+
 int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);
   rclcpp::init(argc, argv);
