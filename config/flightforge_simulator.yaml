@@ -6,6 +6,9 @@ mrs_uav_flightforge_simulator:
   # The ip address of the simulator. If running locally, set to "localhost". 
   simulator_ip: "localhost"
 
+  # The game mode port of the simulator (drone ports are assigned by the simulator on spawn).
+  simulator_port: 8551
+
   # the rate of publishing of /clock
   clock_rate:      400.0 # Hz, should be >= simulation_rate, ideally in whole multiples of simulation_rate
 
@@ -79,6 +82,7 @@ mrs_uav_flightforge_simulator:
 
       enabled: false
       livox: false
+      livox_sensor: "mid360" # "mid360" or "avia"
 
       rate: 10.0 # [Hz]
 
