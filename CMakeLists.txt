@@ -198,6 +198,7 @@ if(BUILD_TESTING)
   ament_add_gtest(test_sensors
     test/test_sensor_config.cpp
     test/test_image_conversions.cpp
+    test/test_lidar_conversions.cpp
   )
 
   target_link_libraries(test_sensors
