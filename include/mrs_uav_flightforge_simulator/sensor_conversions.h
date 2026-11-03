@@ -12,6 +12,10 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/header.hpp>
 
+#include <event_camera_msgs/msg/event_packet.hpp>
+
+#include <mrs_uav_flightforge_simulator/msg/instance_map.hpp>
+
 #include <flight_forge_connector/data_types.h>
 #include <flight_forge_connector/serialization/serializable_shared.h>
 
@@ -54,6 +58,15 @@ struct LidarClouds
 
 // nullopt when a requested channel is not parallel to the points
 std::optional<LidarClouds> toLidarClouds(const ueds_connector::LidarScan& scan, const LidarParams& p, const std_msgs::msg::Header& header, std::mt19937& rng);
+
+//}
+
+/* events and labels //{ */
+
+event_camera_msgs::msg::EventPacket toEventPacket(const ueds_connector::CameraEvents& ev, const std_msgs::msg::Header& header);
+
+mrs_uav_flightforge_simulator::msg::InstanceMap toInstanceMap(const std::vector<Serializable::Drone::InstanceSegMapEntry>& entries,
+                                                              const std_msgs::msg::Header&                             header);
 
 //}
 
