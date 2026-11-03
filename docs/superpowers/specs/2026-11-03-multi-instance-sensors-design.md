@@ -184,15 +184,17 @@ at `direction * distance` with distance in m (the sim reports cm) and y negated 
 right-handed frame, and range noise applied when `noise.enabled`. `points_free` holds a unit
 direction for every ray without a return.
 
-Camera frames arrive compressed (JPEG for colour, lossless PNG for the label cameras) and are
-decoded with `cv::imdecode`, which yields BGR channel order.
+Camera frames arrive as JPEG (rgb, fisheye, stereo) or PNG (instance_seg) and are decoded with
+`cv::imdecode`, which yields BGR channel order; rgb_segmented frames arrive as uncompressed BGR
+and are taken as is. Every frame is checked against the size `GetCameraInfo` reports.
 
 Events are encoded to EVT3 with `event_camera_codecs::evt3::Encoder`: `time_base` and
 `setSensorTime` take the batch's `base_stamp` in ns, and each event is encoded at
 `t_us * 1000` ns after it. The event camera keeps `use_sim_time: true`, so its stamps are UE
-world time, which the time-dilation sync keeps at the ROS rate. Its header stamp therefore comes
-from a UE-world-to-ROS-sim offset that `timerTimeSync` tracks with `GetSimTime`, not from
-`flightforgeTimeToSimtime`, which maps wall-clock capture stamps. New package dependencies:
+world time, which the time-dilation sync keeps at the ROS rate. Its header stamp is the batch's end
+(`stamp`) mapped through a UE-world-to-ROS-sim offset that `timerTimeSync` tracks with
+`GetSimTime` and low-pass filters, not through `flightforgeTimeToSimtime`, which maps wall-clock
+capture stamps. A poll whose batch did not advance publishes nothing, so `rate` is a poll rate. New package dependencies:
 `event_camera_msgs` and `event_camera_codecs`. The first two are not installed
 system-wide and are built from source in the workspace until they are installed from apt.
 

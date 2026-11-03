@@ -29,6 +29,9 @@ namespace mrs_uav_flightforge_simulator
 // nullopt when empty, undecodable, or not width x height
 std::optional<cv::Mat> decodeFrame(const std::vector<unsigned char>& data, int width, int height);
 
+// the segmentation camera sends uncompressed BGR
+std::optional<cv::Mat> rawFrame(const std::vector<unsigned char>& data, int width, int height);
+
 sensor_msgs::msg::Image toColorImage(const cv::Mat& bgr, const std_msgs::msg::Header& header);
 
 sensor_msgs::msg::Image toInstanceImage(const cv::Mat& bgr, const std_msgs::msg::Header& header);

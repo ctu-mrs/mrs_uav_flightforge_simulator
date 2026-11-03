@@ -73,6 +73,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   DEPENDENCIES geometry_msgs std_msgs
 )
 
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_typesupport_cpp)
+
 include_directories(
   include
   include/cereal
@@ -100,7 +102,7 @@ add_library(MrsUavFlightforgeSimulator_Sensors SHARED
 )
 
 target_link_libraries(MrsUavFlightforgeSimulator_Sensors
-  ${PROJECT_NAME}__rosidl_generator_cpp
+  ${cpp_typesupport_target}
   yaml-cpp
 )
 
@@ -117,7 +119,7 @@ add_library(MrsUavFlightforgeSimulator_FlightforgeSimulator SHARED
 target_link_libraries(MrsUavFlightforgeSimulator_FlightforgeSimulator
   MrsUavFlightforgeSimulator_FlightforgeConnector
   MrsUavFlightforgeSimulator_Sensors
-  ${PROJECT_NAME}__rosidl_generator_cpp
+  ${cpp_typesupport_target}
 )
 
 ament_target_dependencies(MrsUavFlightforgeSimulator_FlightforgeSimulator

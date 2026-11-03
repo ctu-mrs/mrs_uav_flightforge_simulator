@@ -32,6 +32,15 @@ std::optional<cv::Mat> decodeFrame(const std::vector<unsigned char>& data, int w
   return image;
 }
 
+std::optional<cv::Mat> rawFrame(const std::vector<unsigned char>& data, int width, int height) {
+
+  if (width <= 0 || height <= 0 || data.size() != size_t(width) * height * 3) {
+    return std::nullopt;
+  }
+
+  return cv::Mat(height, width, CV_8UC3, const_cast<unsigned char*>(data.data())).clone();
+}
+
 namespace
 {
 
