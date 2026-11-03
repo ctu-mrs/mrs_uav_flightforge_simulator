@@ -63,6 +63,28 @@ def generate_launch_description():
 
     # #} end of custom_config
 
+    # #{ platform_config
+
+    platform_config = LaunchConfiguration('platform_config')
+
+    ld.add_action(DeclareLaunchArgument(
+        'platform_config',
+        default_value="",
+        description="Path to the platform configuration file. The path can be absolute, starting with '/' or relative to the current working directory",
+    ))
+
+    # behaviour:
+    #     platform_config == "" => platform_config: ""
+    #     platform_config == "/<path>" => platform_config: "/<path>"
+    #     platform_config == "<path>" => platform_config: "$(pwd)/<path>"
+    platform_config = IfElseSubstitution(
+            condition=PythonExpression(['"', platform_config, '" != "" and ', 'not "', platform_config, '".startswith("/")']),
+            if_value=PathJoinSubstitution([EnvironmentVariable('PWD'), platform_config]),
+            else_value=platform_config
+    )
+
+    # #} end of platform_config
+
     # #{ use_sim_time
 
     use_sim_time = LaunchConfiguration('use_sim_time')
@@ -86,7 +108,7 @@ def generate_launch_description():
         namespace=uav_name,
         name=namespace+'_container',
         package='rclcpp_components',
-        executable='component_container_mt',
+        executable='component_container_events_cbg',
         output="screen",
 
         # prefix=['debug_roslaunch ' + os.ttyname(sys.stdout.fileno())],
@@ -105,6 +127,7 @@ def generate_launch_description():
                     {"use_sim_time": use_sim_time},
                     {"configs": configs},
                     {'custom_config': custom_config},
+                    {'platform_config': platform_config},
                 ],
 
                 remappings=[
