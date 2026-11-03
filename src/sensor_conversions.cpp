@@ -7,6 +7,11 @@
 
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 
+#include <rclcpp/time.hpp>
+
+#include <event_camera_codecs/encoder.h>
+#include <event_camera_codecs/evt3_encoder.h>
+
 namespace mrs_uav_flightforge_simulator
 {
 
@@ -247,6 +252,54 @@ std::optional<LidarClouds> toLidarClouds(const ueds_connector::LidarScan& scan, 
   }
 
   return out;
+}
+
+//}
+
+/* events and labels //{ */
+
+event_camera_msgs::msg::EventPacket toEventPacket(const ueds_connector::CameraEvents& ev, const std_msgs::msg::Header& header) {
+
+  event_camera_msgs::msg::EventPacket pkt;
+
+  pkt.header       = header;
+  pkt.width        = ev.width;
+  pkt.height       = ev.height;
+  pkt.encoding     = "evt3";
+  pkt.is_bigendian = false;
+  pkt.time_base    = rclcpp::Time(header.stamp).nanoseconds();
+
+  event_camera_codecs::evt3::Encoder encoder;
+
+  encoder.setBuffer(&pkt.events);
+  encoder.setSensorTime(uint64_t(ev.base_stamp * 1e9));
+
+  const size_t n = std::min(ev.xyp.size(), ev.t_us.size());
+
+  for (size_t i = 0; i < n; i++) {
+    const uint32_t xyp = ev.xyp[i];
+    encoder.encodeCD(int32_t(ev.t_us[i]) * 1000, xyp & 0xFFFFu, (xyp >> 16) & 0x7FFFu, (xyp >> 31) & 1u);
+  }
+
+  encoder.flush();
+
+  return pkt;
+}
+
+mrs_uav_flightforge_simulator::msg::InstanceMap toInstanceMap(const std::vector<Serializable::Drone::InstanceSegMapEntry>& entries,
+                                                              const std_msgs::msg::Header&                             header) {
+
+  mrs_uav_flightforge_simulator::msg::InstanceMap map;
+
+  map.header = header;
+
+  for (const auto& e : entries) {
+    map.ids.push_back(e.id);
+    map.actors.push_back(e.actor);
+    map.class_ids.push_back(e.class_id);
+  }
+
+  return map;
 }
 
 //}

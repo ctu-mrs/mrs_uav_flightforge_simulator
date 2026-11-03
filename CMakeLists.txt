@@ -199,6 +199,7 @@ if(BUILD_TESTING)
     test/test_sensor_config.cpp
     test/test_image_conversions.cpp
     test/test_lidar_conversions.cpp
+    test/test_event_conversions.cpp
   )
 
   target_link_libraries(test_sensors
