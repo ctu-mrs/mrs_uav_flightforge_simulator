@@ -1,5 +1,7 @@
 /* includes //{ */
 
+#include <algorithm>
+
 #include <rclcpp/rclcpp.hpp>
 
 #include <mrs_multirotor_simulator/uav_system_ros.h>
@@ -40,6 +42,7 @@
 #include <flight_forge_connector/flight_forge_connector.h>
 #include <flight_forge_connector/game_mode_controller.h>
 #include <flight_forge_connector/serialization/serializable_shared.h>
+#include <flight_forge_connector/serialization/serializable_schema.h>
 
 #include <pcl/point_types.h>
 #include <pcl/conversions.h>
@@ -107,12 +110,14 @@ private:
   bool   _collisions_ = false;
 
   rclcpp::Time sim_time_;
+  double       sim_time_wall_ = 0;
   rclcpp::Time last_step_time_;
   rclcpp::Time last_step_wall_time_;
   std::mutex   mutex_sim_time_;
 
   std::string _world_frame_name_;
   std::string _simulator_ip_;
+  int         _simulator_port_;
 
   // | ------------------------- timers ------------------------- |
 
@@ -158,6 +163,8 @@ private:
 
   double     actual_rtf_ = 1.0;
   std::mutex mutex_actual_rtf_;
+
+  double flightforge_time_dilation_ = 0.0;  // forces the first sync, the sim may still be dilated by a previous run
 
   rclcpp::Time last_sim_time_status_;
 
@@ -629,6 +636,7 @@ private:
   double lidar_beam_length_          = 40;
   bool   lidar_show_beams_           = false;
   bool   lidar_livox_                = false;
+  std::string lidar_livox_sensor_    = "mid360";
 
   int    rgb_width_                  = 640;
   int    rgb_height_                 = 480;
@@ -673,6 +681,47 @@ private:
 FlightforgeSimulator::FlightforgeSimulator(rclcpp::NodeOptions options) : Node("mrs_uav_flightforge_simulator", options) {
 
   timer_init_ = this->create_wall_timer(std::chrono::duration<double>(0.1s), std::bind(&FlightforgeSimulator::timerInit, this));
+}
+
+//}
+
+/* op compatibility //{ */
+
+static const std::vector<std::string> kGameModeOps = {"get_api_version",  "get_time",           "get_fps",
+                                                      "get_world_origin", "switch_world_level", "spawn_drone_at_location",
+                                                      "set_weather",      "set_daytime",        "set_graphics_settings",
+                                                      "set_forest_density", "set_forest_hilly_level", "set_mutual_visibility"};
+
+static const std::vector<std::string> kDroneOps = {"set_location_and_rotation_async", "get_rgb_camera_data",   "get_rgb_seg_camera_data",
+                                                   "get_stereo_camera_data",          "get_lidar_data",        "get_lidar_seg",
+                                                   "get_lidar_int",                   "get_rangefinder_data",  "set_rgb_camera_config",
+                                                   "set_stereo_camera_config",        "set_lidar_config",      "get_crash_state"};
+
+static bool checkOpCompatibility(ueds_connector::SocketClient& client, const std::vector<std::string>& ops, const std::string& who,
+                                 const rclcpp::Logger& logger) {
+
+  // Incompatibilities() skips names the local registry lacks, so a typo here would pass silently
+  const auto local_ops = Serializable::Schema::BuildMetaResponse().ops_;
+  for (const auto& op : ops) {
+    if (std::none_of(local_ops.begin(), local_ops.end(), [&](const auto& m) { return m.name_ == op; })) {
+      RCLCPP_ERROR(logger, "%s: op '%s' is not in the connector's registry, fix the op list in this node", who.c_str(), op.c_str());
+      return false;
+    }
+  }
+
+  const auto [answered, problems] = client.CheckCompatibility(ops);
+
+  if (answered && problems.empty()) {
+    return true;
+  }
+
+  RCLCPP_ERROR(logger, "%s: the simulator does not serve %zu op(s) this node needs:", who.c_str(), problems.size());
+  for (const auto& problem : problems) {
+    RCLCPP_ERROR(logger, "    %s", problem.c_str());
+  }
+  RCLCPP_ERROR(logger, "%s: update either the simulator binary or this package so they agree", who.c_str());
+
+  return false;
 }
 
 //}
@@ -731,15 +780,21 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "simulation_rate", _simulation_rate_);
   param_loader.loadParam(yaml_prefix + "clock_rate", _clock_rate_);
   param_loader.loadParam(yaml_prefix + "simulator_ip", _simulator_ip_);
+  param_loader.loadParam(yaml_prefix + "simulator_port", _simulator_port_, 8551);
 
-  // Validate the simulator_ip parameter
   if (_simulator_ip_.empty()) {
     RCLCPP_ERROR(node_->get_logger(), "simulator_ip parameter is empty!");
     rclcpp::shutdown();
     exit(1);
   }
 
-  RCLCPP_INFO(node_->get_logger(), "Using simulator IP: %s", _simulator_ip_.c_str());
+  if (_simulator_port_ < 1 || _simulator_port_ > 65535) {
+    RCLCPP_ERROR(node_->get_logger(), "simulator_port %d is not a valid TCP port!", _simulator_port_);
+    rclcpp::shutdown();
+    exit(1);
+  }
+
+  RCLCPP_INFO(node_->get_logger(), "Using simulator at %s:%d", _simulator_ip_.c_str(), _simulator_port_);
 
   if (_clock_rate_ < _simulation_rate_) {
     RCLCPP_ERROR(node_->get_logger(), "clock_rate (%.2f Hz) should be higher than simulation rate (%.2f Hz)!", _clock_rate_, _simulation_rate_);
@@ -785,7 +840,7 @@ void FlightforgeSimulator::timerInit() {
 
   dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/enabled", &drs_params_.lidar_enabled,
                                 (std::function<void(const bool&)>)std::bind(&FlightforgeSimulator::callbackLidarEnable, this, std::placeholders::_1));
-  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/rate", &drs_params_.lidar_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 20.0),
+  dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/rate", &drs_params_.lidar_rate, mrs_lib::DynparamMgr::range_t<double>(1.0, 200.0),
                                 (std::function<void(const double&)>)std::bind(&FlightforgeSimulator::callbackLidarRate, this, std::placeholders::_1));
 
   param_loader.loadParam(yaml_prefix + "sensors/lidar/horizontal_fov_left", lidar_horizontal_fov_left_);
@@ -807,6 +862,7 @@ void FlightforgeSimulator::timerInit() {
 
   param_loader.loadParam(yaml_prefix + "sensors/lidar/beam_length", lidar_beam_length_);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/livox", lidar_livox_);
+  param_loader.loadParam(yaml_prefix + "sensors/lidar/livox_sensor", lidar_livox_sensor_);
   param_loader.loadParam(yaml_prefix + "sensors/lidar/show_beams", lidar_show_beams_);
 
   dynparam_mgr_->register_param(yaml_prefix + "sensors/lidar/noise/enabled", &drs_params_.lidar_noise_enabled);
@@ -936,7 +992,7 @@ void FlightforgeSimulator::timerInit() {
 
   // | ----------- initialize the FlightForge connector ---------- |
 
-  ueds_game_controller_ = std::make_shared<ueds_connector::GameModeController>(_simulator_ip_, 8551);
+  ueds_game_controller_ = std::make_shared<ueds_connector::GameModeController>(_simulator_ip_, _simulator_port_);
 
   while (rclcpp::ok()) {
 
@@ -952,32 +1008,26 @@ void FlightforgeSimulator::timerInit() {
   auto [res, api_version]                     = ueds_game_controller_->GetApiVersion();
   auto [api_version_major, api_version_minor] = api_version;
 
-  if (!res || api_version_major != API_VERSION_MAJOR || api_version_minor != API_VERSION_MINOR) {
-
-    RCLCPP_ERROR(node_->get_logger(), "The API versions don't match! (ROS side '%d.%d' != FlightForge binary side '%d.%d')", API_VERSION_MAJOR,
-                 API_VERSION_MINOR, api_version_major, api_version_minor);
-    RCLCPP_ERROR(node_->get_logger(), "     ");
-    RCLCPP_ERROR(node_->get_logger(), " Solution:");
-    RCLCPP_ERROR(node_->get_logger(), "           1. make sure the mrs_uav_unreal_simulation package is up to date");
-    RCLCPP_ERROR(node_->get_logger(), "              sudo apt update && sudo apt upgrade");
-    RCLCPP_ERROR(node_->get_logger(), "     ");
-    RCLCPP_ERROR(node_->get_logger(), "           2. make sure you have the right version of the FlightForge Simulator binary 'game'");
-    RCLCPP_ERROR(node_->get_logger(), "              download at: https://github.com/ctu-mrs/mrs_uav_unreal_simulation");
-    RCLCPP_ERROR(node_->get_logger(), "     ");
-
-    rclcpp::shutdown();
+  if (res) {
+    RCLCPP_INFO(node_->get_logger(), "FlightForge API %d.%d (ROS side built against %d.%d)", api_version_major, api_version_minor, API_VERSION_MAJOR,
+                API_VERSION_MINOR);
   }
 
-  auto name_to_id_map = ueds_connector::WorldName::Name2Id();
-  auto it             = name_to_id_map.find(flightforge_world_level_name_enum_);
-  if (it == name_to_id_map.end()) {
+  if (!checkOpCompatibility(*ueds_game_controller_, kGameModeOps, "game mode", node_->get_logger())) {
+    rclcpp::shutdown();
+    return;
+  }
+
+  const auto& name_to_level = ueds_connector::WorldName::Name2Level();
+  const auto  it            = name_to_level.find(flightforge_world_level_name_enum_);
+  if (it == name_to_level.end()) {
     std::string error_msg = "Unknown world_name: '" + flightforge_world_level_name_enum_ + "'. Available worlds: ";
-    for (const auto& pair : name_to_id_map) {
+    for (const auto& pair : name_to_level) {
       error_msg += "'" + pair.first + "' ";
     }
     throw std::invalid_argument(error_msg);
   }
-  res = ueds_game_controller_->SwitchWorldLevel(ueds_connector::WorldName::Name2Id().at(flightforge_world_level_name_enum_));
+  res = ueds_game_controller_->SwitchWorldLevel(it->second);
 
   if (res) {
     RCLCPP_INFO(node_->get_logger(), "World was switched succesfully.");
@@ -1083,9 +1133,12 @@ void FlightforgeSimulator::timerInit() {
 
     RCLCPP_INFO(node_->get_logger(), "Frame type to spawn is %s", uav_frame.c_str());
 
-    int uav_frame_id = ueds_connector::UavFrameType::Type2IdMesh().at(uav_frame);
+    const auto& known_frames = ueds_connector::UavFrameType::KnownNames();
+    if (std::find(known_frames.begin(), known_frames.end(), uav_frame) == known_frames.end()) {
+      RCLCPP_WARN(node_->get_logger(), "Frame '%s' is not a packed mesh; the simulator will look for a .glb of that name", uav_frame.c_str());
+    }
 
-    auto [resSpawn, port] = ueds_game_controller_->SpawnDroneAtLocation(pos, uav_frame_id);
+    auto [resSpawn, port] = ueds_game_controller_->SpawnDroneAtLocation(pos, uav_frame);
 
     if (!resSpawn) {
       RCLCPP_ERROR(node_->get_logger(), "failed to spawn %s", uav_names[i].c_str());
@@ -1107,6 +1160,11 @@ void FlightforgeSimulator::timerInit() {
 
     } else {
       RCLCPP_INFO(node_->get_logger(), "%s - Connection succeed: %d", uav_name.c_str(), connect_result);
+
+      if (!checkOpCompatibility(*ueds_connector, kDroneOps, uav_name, node_->get_logger())) {
+        rclcpp::shutdown();
+        return;
+      }
 
       // ROS_INFO("[UnrealSimulator]: wait until UAV fall on the ground ... && uptade their world origin");
 
@@ -1155,6 +1213,8 @@ void FlightforgeSimulator::timerInit() {
       lidarConfig.orientation  = ueds_connector::Rotation(-lidar_rotation_pitch_, lidar_rotation_yaw_, lidar_rotation_roll_);
       lidarConfig.showBeams    = lidar_show_beams_;
       lidarConfig.Livox        = lidar_livox_;
+      lidarConfig.LivoxSensor  = lidar_livox_sensor_;
+      lidarConfig.Frequency    = drs_params_.lidar_rate;
 
       const auto res = ueds_connectors_[i]->SetLidarConfig(lidarConfig);
 
@@ -1380,7 +1440,8 @@ void FlightforgeSimulator::timerMain() {
   {
     std::scoped_lock lock(mutex_sim_time_);
 
-    sim_time_ = sim_time_ + rclcpp::Duration(std::chrono::duration<double>(clock_step_size));
+    sim_time_      = sim_time_ + rclcpp::Duration(std::chrono::duration<double>(clock_step_size));
+    sim_time_wall_ = wall_clock_->now().seconds();
 
     // | ---------------------- publish time ---------------------- |
 
@@ -1502,12 +1563,26 @@ void FlightforgeSimulator::timerStatus() {
   timer_main_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / (_clock_rate_ * desired_rtf)), std::bind(&FlightforgeSimulator::timerMain, this),
                                          cbgrp_main_);
 
+  // the sim's own clock drives Livox point counts and motion, so it must run at the ROS rate
+  if (std::abs(desired_rtf - flightforge_time_dilation_) > 0.01 * desired_rtf) {
+
+    std::scoped_lock lock(mutex_flightforge_);
+
+    double applied;
+
+    if (ueds_game_controller_->SetTimeDilation(desired_rtf, applied)) {
+      flightforge_time_dilation_ = applied;
+    } else {
+      RCLCPP_ERROR(node_->get_logger(), "Failed to set the FlightForge time dilation to %.3f", desired_rtf);
+    }
+  }
+
   if (_collisions_) {
     checkForCrash();
   }
 
-  RCLCPP_INFO(node_->get_logger(), "%s, desired RTF = %.2f, actual RTF = %.2f, FlightForge FPS = %.2f, FlightForge RTF = %.2f",
-              drs_params.paused ? "paused" : "running", drs_params.realtime_factor, actual_rtf, flightforge_fps_, flightforge_rtf);
+  RCLCPP_INFO(node_->get_logger(), "%s, desired RTF = %.2f, actual RTF = %.2f, FlightForge FPS = %.2f, FlightForge RTF = %.2f, time dilation = %.2f",
+              drs_params.paused ? "paused" : "running", drs_params.realtime_factor, actual_rtf, flightforge_fps_, flightforge_rtf, flightforge_time_dilation_);
 
   mrs_lib::set_mutexed(mutex_actual_rtf_, actual_rtf, actual_rtf_);
 }
@@ -1539,18 +1614,19 @@ void FlightforgeSimulator::timerTimeSync() {
 
   auto wall_time_offset = mrs_lib::get_mutexed(mutex_wall_time_offset_, wall_time_offset_);
 
-  const double sync_start = wall_clock_->now().seconds();
-
   bool   res;
   double flightforge_time;
+  double sync_start;
+  double sync_end;
 
+  // stamped inside the lock, so waiting for it is not mistaken for round trip
   {
     std::scoped_lock lock(mutex_flightforge_);
 
+    sync_start                      = wall_clock_->now().seconds();
     std::tie(res, flightforge_time) = ueds_game_controller_->GetTime();
+    sync_end                        = wall_clock_->now().seconds();
   }
-
-  const double sync_end = wall_clock_->now().seconds();
 
   if (!res) {
     RCLCPP_ERROR(node_->get_logger(), "Failed to get FlightForge's time");
@@ -1650,11 +1726,12 @@ void FlightforgeSimulator::timerLidar() {
     bool                                   res;
     std::vector<ueds_connector::LidarData> lidarData;
     ueds_connector::Coordinates            start;
+    double                                 stamp;
 
     {
       std::scoped_lock lock(mutex_flightforge_);
 
-      std::tie(res, lidarData, start) = ueds_connectors_[i]->GetLidarData();
+      std::tie(res, lidarData, start, stamp) = ueds_connectors_[i]->GetLidarData();
     }
 
     if (!res) {
@@ -1675,8 +1752,6 @@ void FlightforgeSimulator::timerLidar() {
       }
     }
 
-    auto last_step_time = mrs_lib::get_mutexed(mutex_sim_time_, last_step_time_);
-
     const std::string uav_name = uav_names[i];
 
     // | --------------- pointcloud for valid points -------------- |
@@ -1687,9 +1762,7 @@ void FlightforgeSimulator::timerLidar() {
     sensor_msgs::PointCloud2Modifier modifier(pcl_msg);
     modifier.setPointCloud2Fields(4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1, sensor_msgs::msg::PointField::FLOAT32, "z", 1,
                                   sensor_msgs::msg::PointField::FLOAT32, "intensity", 1, sensor_msgs::msg::PointField::FLOAT32);
-
-    // TODO we should publish the actual stamp from the unreal sim (transformed to the simtime)
-    pcl_msg.header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+    pcl_msg.header.stamp = flightforgeTimeToSimtime(stamp);
 
     pcl_msg.header.frame_id = uav_name + "/lidar";
     pcl_msg.is_dense        = true;
@@ -1710,8 +1783,7 @@ void FlightforgeSimulator::timerLidar() {
     modifier_free.setPointCloud2Fields(4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1, sensor_msgs::msg::PointField::FLOAT32, "z", 1,
                                        sensor_msgs::msg::PointField::FLOAT32, "intensity", 1, sensor_msgs::msg::PointField::FLOAT32);
 
-    // TODO we should publish the actual stamp from the unreal sim (transformed to the simtime)
-    pcl_free_msg.header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+    pcl_free_msg.header.stamp = pcl_msg.header.stamp;
 
     pcl_free_msg.header.frame_id = uav_name + "/lidar";
     pcl_free_msg.is_dense        = true;
@@ -1806,11 +1878,12 @@ void FlightforgeSimulator::timerSegLidar() {
     bool                                      res;
     std::vector<ueds_connector::LidarSegData> lidarSegData;
     ueds_connector::Coordinates               start;
+    double                                    stamp;
 
     {
       std::scoped_lock lock(mutex_flightforge_);
 
-      std::tie(res, lidarSegData, start) = ueds_connectors_[i]->GetLidarSegData();
+      std::tie(res, lidarSegData, start, stamp) = ueds_connectors_[i]->GetLidarSegData();
     }
 
     if (!res) {
@@ -1840,19 +1913,19 @@ void FlightforgeSimulator::timerSegLidar() {
       point.x = dir.x();
       point.y = -dir.y();
       point.z = dir.z();
-      point.r = seg_rgb_[ray.segmentation][0];
-      point.g = seg_rgb_[ray.segmentation][1];
-      point.b = seg_rgb_[ray.segmentation][2];
+      // -1 marks a ray without a return
+      const int seg = (ray.segmentation >= 0 && ray.segmentation < 256) ? ray.segmentation : 0;
+
+      point.r = seg_rgb_[seg][0];
+      point.g = seg_rgb_[seg][1];
+      point.b = seg_rgb_[seg][2];
       pcl_cloud.push_back(point);
     }
 
     sensor_msgs::msg::PointCloud2 pcl_msg;
     pcl::toROSMsg(pcl_cloud, pcl_msg);
 
-    auto last_step_time = mrs_lib::get_mutexed(mutex_sim_time_, last_step_time_);
-
-    // TODO we should publish the actual stamp from the unreal sim (transformed to the simtime)
-    pcl_msg.header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+    pcl_msg.header.stamp = flightforgeTimeToSimtime(stamp);
 
     pcl_msg.header.frame_id = "uav" + std::to_string(i + 1) + "/lidar";
     ph_seg_lidars_[i].publish(pcl_msg);
@@ -1880,11 +1953,12 @@ void FlightforgeSimulator::timerIntLidar() {
     bool                                      res;
     std::vector<ueds_connector::LidarIntData> lidarData;
     ueds_connector::Coordinates               start;
+    double                                    stamp;
 
     {
       std::scoped_lock lock(mutex_flightforge_);
 
-      std::tie(res, lidarData, start) = ueds_connectors_[i]->GetLidarIntData();
+      std::tie(res, lidarData, start, stamp) = ueds_connectors_[i]->GetLidarIntData();
     }
 
     if (!res) {
@@ -1898,18 +1972,16 @@ void FlightforgeSimulator::timerIntLidar() {
     sensor_msgs::PointCloud2Modifier modifier(pcl_msg);
     modifier.setPointCloud2Fields(4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1, sensor_msgs::msg::PointField::FLOAT32, "z", 1,
                                   sensor_msgs::msg::PointField::FLOAT32, "intensity", 1, sensor_msgs::msg::PointField::FLOAT32);
-    // Msg header
-    auto last_step_time = mrs_lib::get_mutexed(mutex_sim_time_, last_step_time_);
+    pcl_msg.header.stamp = flightforgeTimeToSimtime(stamp);
 
-    // TODO we should publish the actual stamp from the unreal sim (transformed to the simtime)
-    pcl_msg.header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+    // a Livox returns however many points its pattern produced since the last request
+    const bool organized = lidarData.size() == size_t(lidar_vertical_rays_ * lidar_horizontal_rays_);
 
     pcl_msg.header.frame_id = "uav" + std::to_string(i + 1) + "/lidar";
-    pcl_msg.height          = lidar_vertical_rays_;
-    pcl_msg.width           = lidar_horizontal_rays_;
+    pcl_msg.height          = organized ? lidar_vertical_rays_ : 1;
+    pcl_msg.width           = organized ? lidar_horizontal_rays_ : lidarData.size();
     pcl_msg.is_dense        = true;
 
-    // Total number of bytes per point
     pcl_msg.point_step = 16;
     pcl_msg.row_step   = pcl_msg.point_step * pcl_msg.width;
     pcl_msg.data.resize(pcl_msg.row_step * pcl_msg.height);
@@ -2841,9 +2913,11 @@ rclcpp::Time FlightforgeSimulator::flightforgeTimeToSimtime(const double flightf
   auto wall_time_offset = mrs_lib::get_mutexed(mutex_wall_time_offset_, wall_time_offset_);
   auto actual_rtf       = mrs_lib::get_mutexed(mutex_actual_rtf_, actual_rtf_);
 
-  double relative_wall_age = wall_clock_->now().seconds() - (flightforge_time + wall_time_offset);
+  auto [sim_now, sim_now_wall] = mrs_lib::get_mutexed(mutex_sim_time_, sim_time_, sim_time_wall_);
 
-  double sim_time = clock_->now().seconds() - relative_wall_age * actual_rtf;
+  // interpolated between clock ticks, else two captures within one tick can swap order
+  const double capture_wall = flightforge_time + wall_time_offset;
+  const double sim_time     = sim_now.seconds() - std::max(0.0, sim_now_wall - capture_wall) * actual_rtf;
 
   if (sim_time < 0) {
     return rclcpp::Time(0, 0, clock_->get_clock_type());
