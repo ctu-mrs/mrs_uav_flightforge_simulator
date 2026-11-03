@@ -24,8 +24,9 @@ Success means:
 - Lockstep and fixed-timestep time models. The current wall-clock model with time dilation
   (synced in `timerStatus`) stays.
 - Reconnecting after the simulator restarts. The node still dies in that case.
-- Splitting the conversion code into separate files. That is a file-size question, not part of
-  multi-instance support.
+- Moving the fetch, scheduling and publishing code out of `flightforge_simulator.cpp`. Only the
+  pure conversion and config-loading functions move out, because the unit tests must link them
+  without the node.
 
 ## Connector API used
 
@@ -113,9 +114,9 @@ Per-type keys beyond `rate`, `offset` and `rotation`:
   separate left/right offset and rotation blocks.
 - `event`: width, height, fov, `contrast_threshold_pos`, `contrast_threshold_neg`,
   `max_events_per_frame`.
-- `lidar`: as above. `GetLidarScan` returns a material class per point, not an intensity, so
-  today's material-to-intensity table and intensity noise move under the lidar sensor block
-  unchanged and apply when `intensity: true`.
+- `lidar`: as above. `GetLidarScan` returns a material class per point, which becomes the
+  `intensity` field as is. Today's material-to-intensity table and intensity noise are dropped:
+  the old intensity lidar loaded them but wrote the ray distance into `intensity`.
 - `rangefinder`: only rate, offset and rotation.
 
 The `lidar_segmented` and `lidar_intensity` sub-blocks go away; their behaviour becomes the
@@ -135,9 +136,12 @@ methods, no inheritance, no factory. Each struct holds:
 
 The node holds a `std::vector<RgbSensor>` and so on for each type, indexed `[uav][i]`.
 
+`sensor_conversions.{h,cpp}` holds the pure functions that turn connector data into ROS
+messages, and `sensor_config.{h,cpp}` the per-type loaders. Both are built into a small library
+the node and the tests link.
+
 Everything else stays in `flightforge_simulator.cpp`, written the way `timerRgb` is today:
 
-- a loader per type reads `sensors/<type>/sensor_<i>/...` with fallback to `default`;
 - spawning loops over `n_sensors`: `AddSensor`, the type's `Set*Config` with the returned
   id, `GetCameraInfo` for cameras, then the static TF;
 - each instance gets its own timer on the sim clock, all instances of a type sharing one
@@ -165,33 +169,47 @@ having the optical rotation built in.
 
 | Type | Topics | Message |
 |---|---|---|
-| rgb | `image_raw`, `camera_info` | Image `rgb8` via image_transport |
-| rgb_segmented | `image_raw`, `camera_info` | Image `rgb8` |
+| rgb | `image_raw`, `camera_info` | Image `bgr8` via image_transport |
+| rgb_segmented | `image_raw`, `camera_info` | Image `bgr8` |
 | depth | `image_raw`, `camera_info` | Image `16UC1`, millimetres |
-| instance_seg | `image_raw`, `camera_info`, `labels` | Image `32SC1` holding the 24-bit instance id; latched `vision_msgs/LabelInfo` from `GetInstanceSegMap` |
-| fisheye | `image_raw`, `camera_info` | Image `rgb8`; CameraInfo `distortion_model: equidistant`, KB coefficients in `D` |
-| stereo | `left/image_raw`, `left/camera_info`, `right/image_raw`, `right/camera_info` | Image `rgb8`; the right `P` carries the baseline (`P[3] = -fx * baseline`) |
+| instance_seg | `image_raw`, `camera_info`, `labels` | Image `32SC1` holding the 24-bit instance id (`r + (g << 8) + (b << 16)` of the decoded PNG); latched `mrs_uav_flightforge_simulator/InstanceMap` (`uint32[] ids`, `string[] actors`, `uint16[] class_ids`) from `GetInstanceSegMap`, because `vision_msgs/LabelInfo` ids are uint16 |
+| fisheye | `image_raw`, `camera_info` | Image `bgr8`; CameraInfo `distortion_model: equidistant`, KB coefficients in `D` |
+| stereo | `left/image_raw`, `left/camera_info`, `right/image_raw`, `right/camera_info` | Image `bgr8`; the right `P` carries the baseline (`P[3] = -fx * baseline`) |
 | event | `events` | `event_camera_msgs/EventPacket`, encoding `evt3` |
-| lidar | `points`, `points_free` if `publish_free` | PointCloud2 `x y z`, plus `intensity` (float32) if `intensity`, plus `class_id` (uint16) and `instance_id` (uint32) if `labels` |
+| lidar | `points`, `points_free` if `publish_free` | PointCloud2 `x y z`, plus `intensity` (float32, the material class) if `intensity`, plus `class_id` (uint16) and `instance_id` (uint32) if `labels` |
 | rangefinder | `range` | sensor_msgs/Range |
 
-The lidar cloud is organized (`height = vertical_rays`) when the scan has exactly
-`horizontal_rays × vertical_rays` points, otherwise unorganized (`height = 1`). Livox scans are
-always unorganized.
+Lidar clouds are unorganized (`height = 1`), as today. `points` holds the rays with a return,
+at `direction * distance` with distance in m (the sim reports cm) and y negated into the
+right-handed frame, and range noise applied when `noise.enabled`. `points_free` holds a unit
+direction for every ray without a return.
 
-Events are encoded to EVT3 from the connector's packed `xyp` / `t_us` arrays by a small
-encoder in the node. `event_camera_codecs` (apt, Jazzy 3.0.0) decodes EVT3; whether it also
-ships an encoder is checked first in the plan, and used if so. New package dependencies:
-`event_camera_msgs` and `vision_msgs`, plus `event_camera_codecs` for tests.
+Camera frames arrive compressed (JPEG for colour, lossless PNG for the label cameras) and are
+decoded with `cv::imdecode`, which yields BGR channel order.
+
+Events are encoded to EVT3 with `event_camera_codecs::evt3::Encoder`: `time_base` and
+`setSensorTime` take the batch's `base_stamp` in ns, and each event is encoded at
+`t_us * 1000` ns after it. The event camera keeps `use_sim_time: true`, so its stamps are UE
+world time, which the time-dilation sync keeps at the ROS rate. Its header stamp therefore comes
+from a UE-world-to-ROS-sim offset that `timerTimeSync` tracks with `GetSimTime`, not from
+`flightforgeTimeToSimtime`, which maps wall-clock capture stamps. New package dependencies:
+`event_camera_msgs` and `event_camera_codecs`. The first two are not installed
+system-wide and are built from source in the workspace until they are installed from apt.
 
 Today's topic names (`/uav1/rgb/image_raw`, `/uav1/lidar/points`, ...) go away. The only
 consumer in this repo is `tmux/one_drone/rviz.rviz`, which is updated.
 
 ## Error handling
 
-- **Config errors are fatal at startup.** These are: an unknown type key, a negative
-  `n_sensors`, a missing `sensor_<i>` block, or an invalid value (rate ≤ 0, width or
-  height ≤ 0). The error names the full parameter path.
+- **Config errors are fatal at startup.** These are:
+  - a key under `sensors` that is not a known type;
+  - a key under a type other than `n_sensors`, `default` and `sensor_0` … `sensor_<N-1>`;
+  - a negative `n_sensors`;
+  - an invalid value (rate ≤ 0, width or height ≤ 0).
+
+  The error names the full parameter path. `ParamLoader` cannot list keys, so the key checks
+  run with yaml-cpp over the same yaml files the loader reads. A missing `sensor_<i>` block
+  means all defaults, exactly like `sensor_<i>: {}`, which yields no parameters at all.
 - **Setup errors are fatal at startup.** These are: `AddSensor` or `Set*Config` returning
   false, or `GetCameraInfo` returning nothing for a camera. The message names the UAV, type
   and index.
@@ -199,7 +217,7 @@ consumer in this repo is `tmux/one_drone/rviz.rviz`, which is updated.
   next scheduled sample proceeds normally.
 - **Every conversion checks the data length first.** Data that does not match
   width × height × channels is dropped with a throttled error, never written past a buffer.
-  Livox clouds are sized from the data.
+  Lidar clouds are sized from the data.
 - **`CameraEvents::dropped > 0`** logs a throttled warning with the count.
 - **A sample the simulator cannot keep up with is skipped, not queued.**
 
@@ -210,12 +228,12 @@ consumer in this repo is `tmux/one_drone/rviz.rviz`, which is updated.
    - image encodings and `step`;
    - depth `16UC1`;
    - instance ids in `32SC1`;
-   - lidar field layout for each `intensity` / `labels` combination, plus the unorganized
-     Livox case;
+   - lidar field layout for each `intensity` / `labels` combination, and the split between
+     `points` and `points_free`;
    - fisheye CameraInfo;
    - the EVT3 encoder, round-tripped through `event_camera_codecs`;
    - config parsing from a yaml fixture, including the default fallback and each fatal
-     config error.
+     config error, including a misspelt type key.
 2. **Connector integration test** (extends `mrs_flight_forge_connector/tests/sim_integration.cpp`).
    Two sensors of the same type with different resolutions return frames of their own sizes,
    and removing one leaves the other working.
