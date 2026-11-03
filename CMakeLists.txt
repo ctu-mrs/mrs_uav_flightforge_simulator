@@ -96,6 +96,7 @@ add_library(MrsUavFlightforgeSimulator_FlightforgeConnector SHARED
 
 add_library(MrsUavFlightforgeSimulator_Sensors SHARED
   src/sensor_config.cpp
+  src/sensor_conversions.cpp
 )
 
 target_link_libraries(MrsUavFlightforgeSimulator_Sensors
@@ -196,6 +197,7 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_sensors
     test/test_sensor_config.cpp
+    test/test_image_conversions.cpp
   )
 
   target_link_libraries(test_sensors
