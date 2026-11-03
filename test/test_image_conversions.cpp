@@ -125,3 +125,14 @@ TEST(Mount, ToUe) {
   EXPECT_DOUBLE_EQ(r.yaw, 30);
   EXPECT_DOUBLE_EQ(r.roll, 10);
 }
+
+TEST(Images, RawFrameNeedsExactSize) {
+  std::vector<unsigned char> raw(4 * 2 * 3, 7);
+  raw[0]   = 200;
+  auto m   = rawFrame(raw, 4, 2);
+  ASSERT_TRUE(m);
+  EXPECT_EQ(m->cols, 4);
+  EXPECT_EQ(m->at<cv::Vec3b>(0, 0)[0], 200);
+  EXPECT_FALSE(rawFrame(raw, 4, 3));
+  EXPECT_FALSE(rawFrame({}, 4, 2));
+}

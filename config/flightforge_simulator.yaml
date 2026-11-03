@@ -71,147 +71,124 @@ mrs_uav_flightforge_simulator:
 
   ####################################################################
 
+  # Each type takes n_sensors instances; sensor_<i> overrides any key of the type's default block.
+  # Topics are /<uav>/<type>_<i>/..., TF frames <uav>/<type>_<i>.
   sensors:
 
-    rangefinder:
+    rgb:
+      n_sensors: 0
+      default:
+        rate: 30.0 # [Hz]
+        width: 640 # [px]
+        height: 480 # [px]
+        fov: 120.0 # [deg]
+        offset: {x: 0.14, y: 0.0, z: 0.0} # [m]
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0} # [deg]
+        enable_hdr: true
+        enable_temporal_aa: true
+        enable_raytracing: true
+        enable_motion_blur: true
+        motion_blur_amount: 0.5 # [0.0 - 1.0]
+        motion_blur_distortion: 50.0 # [0-100]
 
-      enabled: true
-      rate: 10.0 # [Hz]
+    rgb_segmented:
+      n_sensors: 0
+      default: &camera_default
+        rate: 5.0 # [Hz]
+        width: 640 # [px]
+        height: 480 # [px]
+        fov: 120.0 # [deg]
+        offset: {x: 0.14, y: 0.0, z: 0.0} # [m]
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0} # [deg]
+        enable_hdr: true
+        enable_temporal_aa: true
+        enable_raytracing: true
+        enable_motion_blur: false
+        motion_blur_amount: 0.5
+        motion_blur_distortion: 50.0
+
+    # 16UC1 in millimetres
+    depth:
+      n_sensors: 0
+      default: *camera_default
+
+    # 32SC1 instance ids, with the id -> actor map latched on .../labels
+    instance_seg:
+      n_sensors: 0
+      default: *camera_default
+
+    fisheye:
+      n_sensors: 0
+      default:
+        rate: 10.0 # [Hz]
+        width: 640 # [px]
+        height: 640 # [px]
+        fov: 180.0 # [deg]
+        lens_model: 0 # 0 equidistant, 1 equisolid, 2 stereographic, 3 kannala-brandt
+        full_frame: false
+        offset: {x: 0.1, y: 0.0, z: 0.0} # [m]
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0} # [deg]
+
+    # the eyes sit at +-baseline/2 along y around offset
+    stereo:
+      n_sensors: 0
+      default:
+        rate: 10.0 # [Hz]
+        width: 640 # [px]
+        height: 480 # [px]
+        fov: 90.0 # [deg]
+        baseline: 0.075 # [m]
+        offset: {x: 0.3, y: 0.0, z: 0.0} # [m]
+        rotation: {roll: 0.0, pitch: 20.0, yaw: 0.0} # [deg]
+        enable_hdr: true
+        enable_temporal_aa: true
+        enable_raytracing: true
+
+    # event_camera_msgs/EventPacket, evt3
+    event:
+      n_sensors: 0
+      default:
+        rate: 100.0 # [Hz]
+        width: 346 # [px]
+        height: 260 # [px]
+        fov: 90.0 # [deg]
+        contrast_threshold_pos: 0.2
+        contrast_threshold_neg: 0.2
+        max_events_per_frame: 1048576
+        offset: {x: 0.1, y: 0.0, z: 0.0} # [m]
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0} # [deg]
 
     lidar:
-
-      enabled: false
-      livox: false
-      livox_sensor: "mid360" # "mid360" or "avia"
-
-      rate: 10.0 # [Hz]
-
-      horizontal_fov_left: 180.0 # [deg]
-      horizontal_fov_right: 180.0 # [deg]
-
-      vertical_fov_up: 45.0 # [deg]
-      vertical_fov_down: 45.0 # [deg]
-
-      horizontal_rays: 128 # [-]
-      vertical_rays: 64 # [-]
-
-      offset:
-        x: 0.0 # [m]
-        y: 0.0 # [m]
-        z: 0.25 # [m]
-
-      # TODO which convention?
-      rotation:
-        pitch: 0.0 # [deg]
-        roll: 0.0 # [deg]
-        yaw: 0.0 # [deg]
-
-      beam_length: 20.0 # [m]
-
-      noise:
-
-        enabled: true
-
-        std_at_1m: 0.01 # [m]
-        std_slope: 0.2 # [-] # multiplies std_at_1m for each meter of measured distances
-
-      show_beams: false # TODO broken
-
-      lidar_segmented:
-        enabled: false
+      n_sensors: 0
+      default:
         rate: 10.0 # [Hz]
-
-      lidar_intensity:
-        enabled: false
-        rate: 10.0 # [Hz]
-
-        values:
-          grass: 50
-          road: 7
-          tree: 90
-          building: 70
-          fence: 40
-          dirt_road: 30
-          other: 155
-
+        livox: false
+        livox_sensor: "mid360" # "mid360" or "avia"
+        intensity: false # adds the material class as "intensity"
+        labels: false # adds "class_id" and "instance_id"
+        publish_free: true # unit directions of rays without a return on .../points_free
+        horizontal_rays: 128 # [-]
+        vertical_rays: 64 # [-]
+        horizontal_fov_left: 180.0 # [deg]
+        horizontal_fov_right: 180.0 # [deg]
+        vertical_fov_up: 45.0 # [deg]
+        vertical_fov_down: 45.0 # [deg]
+        beam_length: 20.0 # [m]
+        offset: {x: 0.0, y: 0.0, z: 0.25} # [m]
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0} # [deg]
         noise:
           enabled: true
-          std_at_1m: 0.59 # [-]
-          std_slope: 0.81 # [-] # multiplies std_at_1m for each meter of measured distances
+          std_at_1m: 0.01 # [m]
+          std_slope: 0.2 # [-] multiplies std_at_1m for each meter of measured distance
 
-    rgb:
-
-      enabled: false
-
-      rate: 30.0 # [Hz]
-
-      enable_hdr: true
-      enable_temporal_aa: true
-      enable_raytracing: true
-
-      width: 640 # [px]
-      height: 480 # [px]
-      fov: 120.0 # [deg]
-
-      offset:
-        x: 0.14 # [m]
-        y: 0.0 # [m]
-        z: 0.0 # [m]
-
-      # TODO which Tait-Bryan convention is it in?
-      rotation:
-        pitch: 0.0 # [deg]
-        yaw: 0.0 # [deg]
-        roll: 0.0 # [deg]
-
-      enable_motion_blur: true
-      motion_blur_amount: 0.5 # [0.0 - 1.0]
-      motion_blur_distortion: 50.0 # [0-100]
-
-      rgb_segmented:
-        enabled: false
-        rate: 5.0 # [Hz]
-
-      depth:
-        enabled: false
+    # the simulator's rangefinder looks straight down from the airframe; the mount only places its TF frame
+    rangefinder:
+      n_sensors: 1
+      default:
         rate: 10.0 # [Hz]
-
-    stereo:
-
-      enabled: false
-
-      rate: 10.0 # [Hz]
-
-      width: 640 # [px]
-      height: 480 # [px]
-      fov: 90.0 # [deg]
-
-      # Left camera configuration
-      left: 
-        offset_x: 0.3 # [m]
-        offset_y: 0.0375 # [m]
-        offset_z: 0.0 # [m]
-
-        # TODO which Tait-Bryan convention is it in?
-        rotation_pitch: 20.0 # [deg]
-        rotation_yaw: 0.0 # [deg]
-        rotation_roll: 0.0 # [deg]
-
-      # Right camera configuration
-      right:
-        offset_x: 0.3 # [m]
-        offset_y: -0.0375 # [m]
-        offset_z: 0.0 # [m]
-
-        # TODO which Tait-Bryan convention is it in?
-        rotation_pitch: 20.0 # [deg]
-        rotation_yaw: 0.0 # [deg]
-        rotation_roll: 0.0 # [deg]
-
-      enable_hdr: true
-      enable_temporal_aa: true
-      enable_raytracing: true
-
+        offset: {x: 0.0, y: 0.0, z: 0.0} # [m]
+        rotation: {roll: 0.0, pitch: 90.0, yaw: 0.0} # [deg]
+      sensor_0: {}
 
 
 # randomization of the initial conditions around the desired spawn point
