@@ -50,10 +50,13 @@ set(DEPENDENCIES
   geometry_msgs
   backward_ros
   rosidl_default_generators
+  event_camera_msgs
+  event_camera_codecs
 )
 
 set(LIBRARIES
   MrsUavFlightforgeSimulator_FlightforgeConnector
+  MrsUavFlightforgeSimulator_Sensors
   MrsUavFlightforgeSimulator_FlightforgeSimulator
   MrsUavFlightforgeSimulator_HwApiPlugin
 )
@@ -62,9 +65,12 @@ foreach(DEP IN LISTS DEPENDENCIES)
   find_package(${DEP} REQUIRED)
 endforeach()
 
+find_package(yaml-cpp REQUIRED)
+
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SetOrientation.srv"
-  DEPENDENCIES geometry_msgs
+  "msg/InstanceMap.msg"
+  DEPENDENCIES geometry_msgs std_msgs
 )
 
 include_directories(
@@ -86,6 +92,21 @@ add_library(MrsUavFlightforgeSimulator_FlightforgeConnector SHARED
   src/flight_forge_connector/game_mode_controller.cpp
 )
 
+## | ------------------------- Sensors ------------------------ |
+
+add_library(MrsUavFlightforgeSimulator_Sensors SHARED
+  src/sensor_config.cpp
+)
+
+target_link_libraries(MrsUavFlightforgeSimulator_Sensors
+  ${PROJECT_NAME}__rosidl_generator_cpp
+  yaml-cpp
+)
+
+ament_target_dependencies(MrsUavFlightforgeSimulator_Sensors
+  ${DEPENDENCIES}
+)
+
 ## | ------------------------ FlightForge Simulator ----------------------- |
 
 add_library(MrsUavFlightforgeSimulator_FlightforgeSimulator SHARED
@@ -94,6 +115,7 @@ add_library(MrsUavFlightforgeSimulator_FlightforgeSimulator SHARED
 
 target_link_libraries(MrsUavFlightforgeSimulator_FlightforgeSimulator
   MrsUavFlightforgeSimulator_FlightforgeConnector
+  MrsUavFlightforgeSimulator_Sensors
   ${PROJECT_NAME}__rosidl_generator_cpp
 )
 
@@ -164,6 +186,29 @@ install(
   DIRECTORY srv
   DESTINATION share/${PROJECT_NAME}
 )
+
+## --------------------------------------------------------------
+## |                            Tests                           |
+## --------------------------------------------------------------
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_sensors
+    test/test_sensor_config.cpp
+  )
+
+  target_link_libraries(test_sensors
+    MrsUavFlightforgeSimulator_Sensors
+    yaml-cpp
+  )
+
+  ament_target_dependencies(test_sensors
+    ${DEPENDENCIES}
+  )
+
+  target_compile_definitions(test_sensors PRIVATE TEST_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
+endif()
 
 ament_export_include_directories(
   include

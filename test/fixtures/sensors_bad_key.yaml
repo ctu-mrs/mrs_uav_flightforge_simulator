@@ -1,0 +1,116 @@
+mrs_uav_flightforge_simulator:
+
+  sensors:
+
+    rgb:
+      n_sensors: 2
+      default:
+        rate: 30.0
+        width: 640
+        height: 480
+        fov: 120.0
+        offset: {x: 0.14, y: 0.0, z: 0.0}
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0}
+        enable_hdr: true
+        enable_temporal_aa: true
+        enable_raytracing: true
+        enable_motion_blur: true
+        motion_blur_amount: 0.5
+        motion_blur_distortion: 50.0
+      sensor_0: {}
+      sensor_2:
+        rate: 5.0
+      sensor_1:
+        rate: 10.0
+        rotation: {pitch: 90.0}
+
+    rgb_segmented:
+      n_sensors: 0
+      default: &camera
+        rate: 5.0
+        width: 640
+        height: 480
+        fov: 120.0
+        offset: {x: 0.14, y: 0.0, z: 0.0}
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0}
+        enable_hdr: true
+        enable_temporal_aa: true
+        enable_raytracing: true
+        enable_motion_blur: false
+        motion_blur_amount: 0.5
+        motion_blur_distortion: 50.0
+
+    depth:
+      n_sensors: 0
+      default: *camera
+
+    instance_seg:
+      n_sensors: 0
+      default: *camera
+
+    fisheye:
+      n_sensors: 0
+      default:
+        rate: 10.0
+        width: 640
+        height: 640
+        fov: 180.0
+        lens_model: 0
+        full_frame: false
+        offset: {x: 0.1, y: 0.0, z: 0.0}
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0}
+
+    stereo:
+      n_sensors: 0
+      default:
+        rate: 10.0
+        width: 640
+        height: 480
+        fov: 90.0
+        baseline: 0.075
+        offset: {x: 0.3, y: 0.0, z: 0.0}
+        rotation: {roll: 0.0, pitch: 20.0, yaw: 0.0}
+        enable_hdr: true
+        enable_temporal_aa: true
+        enable_raytracing: true
+
+    event:
+      n_sensors: 0
+      default:
+        rate: 100.0
+        width: 346
+        height: 260
+        fov: 90.0
+        contrast_threshold_pos: 0.2
+        contrast_threshold_neg: 0.2
+        max_events_per_frame: 1048576
+        offset: {x: 0.1, y: 0.0, z: 0.0}
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0}
+
+    lidar:
+      n_sensors: 1
+      default:
+        rate: 10.0
+        livox: false
+        livox_sensor: "mid360"
+        intensity: false
+        labels: false
+        publish_free: true
+        horizontal_rays: 128
+        vertical_rays: 64
+        horizontal_fov_left: 180.0
+        horizontal_fov_right: 180.0
+        vertical_fov_up: 45.0
+        vertical_fov_down: 45.0
+        beam_length: 20.0
+        offset: {x: 0.0, y: 0.0, z: 0.25}
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0}
+        noise: {enabled: true, std_at_1m: 0.01, std_slope: 0.2}
+      sensor_0: {}
+
+    rangefinder:
+      n_sensors: 0
+      default:
+        rate: 10.0
+        offset: {x: 0.0, y: 0.0, z: -0.1}
+        rotation: {roll: 0.0, pitch: 90.0, yaw: 0.0}
