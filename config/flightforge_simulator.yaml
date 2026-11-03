@@ -188,7 +188,6 @@ mrs_uav_flightforge_simulator:
         rate: 10.0 # [Hz]
         offset: {x: 0.0, y: 0.0, z: 0.0} # [m]
         rotation: {roll: 0.0, pitch: 90.0, yaw: 0.0} # [deg]
-      sensor_0: {}
 
 
 # randomization of the initial conditions around the desired spawn point

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <random>
 #include <string>
 
 #include <image_transport/image_transport.hpp>
@@ -90,6 +91,7 @@ struct LidarSensor
   mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2> ph_points, ph_free;
   std::shared_ptr<TimerType>                               timer;
   double                                                   last_stamp = 0.0;
+  std::mt19937                                             rng{std::random_device{}()};  // each timer has its own thread
 };
 
 struct RangefinderSensor

@@ -122,7 +122,7 @@ TEST(Mount, ToUe) {
   EXPECT_DOUBLE_EQ(o.z, 300);
   auto r = toUeRotation(m);
   EXPECT_DOUBLE_EQ(r.pitch, -20);
-  EXPECT_DOUBLE_EQ(r.yaw, 30);
+  EXPECT_DOUBLE_EQ(r.yaw, -30);
   EXPECT_DOUBLE_EQ(r.roll, 10);
 }
 

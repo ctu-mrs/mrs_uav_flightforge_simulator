@@ -276,6 +276,36 @@ SensorsConfig loadSensors(mrs_lib::ParamLoader& loader, const std::string& prefi
 
 /* validateSensorKeys() //{ */
 
+namespace
+{
+
+// "" when every key under block also exists under reference
+std::string unknownKey(const YAML::Node& block, const YAML::Node& reference, const std::string& path) {
+
+  if (!block.IsMap()) {
+    return "";
+  }
+
+  for (const auto& child : block) {
+
+    const auto key = child.first.as<std::string>();
+
+    if (!reference.IsMap() || !reference[key]) {
+      return path + key;
+    }
+
+    const auto nested = unknownKey(child.second, reference[key], path + key + "/");
+
+    if (!nested.empty()) {
+      return nested;
+    }
+  }
+
+  return "";
+}
+
+}  // namespace
+
 std::string validateSensorKeys(const std::vector<std::string>& yaml_files, const std::string& root_key) {
 
   std::vector<YAML::Node> sensors;
@@ -287,14 +317,18 @@ std::string validateSensorKeys(const std::vector<std::string>& yaml_files, const
     }
   }
 
-  // the first file that sets a count wins, as in ParamLoader
-  std::map<std::string, int> counts;
+  // the first file that sets a count or a default wins, as in ParamLoader
+  std::map<std::string, int>        counts;
+  std::map<std::string, YAML::Node> defaults;
 
   for (const auto& s : sensors) {
     for (const auto& type : s) {
       const auto name = type.first.as<std::string>();
       if (type.second["n_sensors"] && !counts.count(name)) {
         counts[name] = type.second["n_sensors"].as<int>();
+      }
+      if (type.second["default"] && !defaults.count(name)) {
+        defaults[name] = type.second["default"];
       }
     }
   }
@@ -310,6 +344,9 @@ std::string validateSensorKeys(const std::vector<std::string>& yaml_files, const
         return "unknown sensor type " + base + name;
       }
 
+      // a file's own count bounds its own blocks
+      const int count = type.second["n_sensors"] ? type.second["n_sensors"].as<int>() : counts[name];
+
       for (const auto& child : type.second) {
 
         const auto key = child.first.as<std::string>();
@@ -318,19 +355,27 @@ std::string validateSensorKeys(const std::vector<std::string>& yaml_files, const
           continue;
         }
 
+        bool in_range = false;
+
         if (key.rfind("sensor_", 0) == 0) {
           try {
             size_t    used  = 0;
             const int index = std::stoi(key.substr(7), &used);
-            if (used == key.size() - 7 && index >= 0 && index < counts[name]) {
-              continue;
-            }
+            in_range        = used == key.size() - 7 && index >= 0 && index < count;
           }
           catch (const std::exception&) {
           }
         }
 
-        return "unexpected key " + base + name + "/" + key + " (n_sensors is " + std::to_string(counts[name]) + ")";
+        if (!in_range) {
+          return "unexpected key " + base + name + "/" + key + " (n_sensors is " + std::to_string(count) + ")";
+        }
+
+        const auto unknown = unknownKey(child.second, defaults[name], base + name + "/" + key + "/");
+
+        if (!unknown.empty()) {
+          return "unknown parameter " + unknown + ", it is not in the default block";
+        }
       }
     }
   }

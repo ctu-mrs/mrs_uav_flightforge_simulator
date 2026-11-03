@@ -141,7 +141,8 @@ ueds_connector::Coordinates toUeOffset(const Mount& m) {
 }
 
 ueds_connector::Rotation toUeRotation(const Mount& m) {
-  return ueds_connector::Rotation(-m.pitch, m.yaw, m.roll);
+  // same convention as the drone pose in updateUnrealPoses
+  return ueds_connector::Rotation(-m.pitch, -m.yaw, m.roll);
 }
 
 //}
@@ -280,14 +281,26 @@ event_camera_msgs::msg::EventPacket toEventPacket(const ueds_connector::CameraEv
 
   event_camera_codecs::evt3::Encoder encoder;
 
+  const uint64_t base = uint64_t(ev.base_stamp * 1e9);
+  uint64_t       anchor = base;
+
   encoder.setBuffer(&pkt.events);
-  encoder.setSensorTime(uint64_t(ev.base_stamp * 1e9));
+  encoder.setSensorTime(anchor);
 
   const size_t n = std::min(ev.xyp.size(), ev.t_us.size());
 
   for (size_t i = 0; i < n; i++) {
+
+    const uint64_t t = base + uint64_t(ev.t_us[i]) * 1000;
+
+    // the encoder takes an int32 ns offset, which overflows past 2.1 s
+    if (t - anchor > 1000000000ull) {
+      anchor = t;
+      encoder.setSensorTime(anchor);
+    }
+
     const uint32_t xyp = ev.xyp[i];
-    encoder.encodeCD(int32_t(ev.t_us[i]) * 1000, xyp & 0xFFFFu, (xyp >> 16) & 0x7FFFu, (xyp >> 31) & 1u);
+    encoder.encodeCD(int32_t(t - anchor), xyp & 0xFFFFu, (xyp >> 16) & 0x7FFFu, (xyp >> 31) & 1u);
   }
 
   encoder.flush();
