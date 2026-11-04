@@ -23,7 +23,7 @@ windows:
   - hw_api:
       layout: tiled
       panes:
-        - ros2 launch mrs_uav_flightforge_simulator hw_api.launch.py
+        - ros2 launch mrs_uav_flightforge_simulator hw_api.launch.py platform_config:=$PLATFORM_CONFIG
   - status:
       layout: tiled
       panes:
