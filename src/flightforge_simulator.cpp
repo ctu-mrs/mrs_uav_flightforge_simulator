@@ -168,6 +168,8 @@ private:
   // in lockstep the node owns time: one Step per physics step, every fetch done before the next
   bool         lockstep_ = false;
   rclcpp::Time step_stamp_;
+  int          lockstep_stride_      = 1;
+  int          steps_since_lockstep_ = 0;
 
   void         stepSimulator(const rclcpp::Time& sim_time);
   rclcpp::Time sensorStamp(double capture_stamp);
@@ -794,7 +796,9 @@ void FlightforgeSimulator::timerInit() {
 
     double applied;
 
-    if (!ueds_game_controller_->SetTimeDilation(1.0, applied) || !ueds_game_controller_->SetFixedTimestep(1.0 / _simulation_rate_, 0.0, applied) ||
+    lockstep_stride_ = lockstepStride(_simulation_rate_, sensors_config_.highestRate());
+
+    if (!ueds_game_controller_->SetTimeDilation(1.0, applied) || !ueds_game_controller_->SetFixedTimestep(lockstep_stride_ / _simulation_rate_, 0.0, applied) ||
         !ueds_game_controller_->SetLockstep(true)) {
       RCLCPP_ERROR(node_->get_logger(), "could not enter lockstep");
       rclcpp::shutdown();
@@ -803,7 +807,7 @@ void FlightforgeSimulator::timerInit() {
 
     flightforge_time_dilation_ = 1.0;
 
-    RCLCPP_INFO(node_->get_logger(), "lockstep at %.1f Hz", _simulation_rate_);
+    RCLCPP_INFO(node_->get_logger(), "lockstep at %.1f Hz", _simulation_rate_ / lockstep_stride_);
   }
 
   // | ----------------------- finish init ---------------------- |
@@ -879,7 +883,10 @@ void FlightforgeSimulator::timerMain() {
       publishPoses();
 
       if (lockstep_) {
-        stepSimulator(sim_time);
+        if (++steps_since_lockstep_ >= lockstep_stride_) {
+          steps_since_lockstep_ = 0;
+          stepSimulator(sim_time);
+        }
       } else {
         dispatchDueSensors(sim_time.seconds());
       }
@@ -2043,9 +2050,17 @@ void FlightforgeSimulator::fetchLidar(size_t uav, size_t i) {
 
   s.last_stamp = scan.stamp;
 
+  const rclcpp::Time published_stamp = sensorStamp(scan.stamp);
+
+  if (published_stamp <= s.last_published_stamp) {
+    return;
+  }
+
+  s.last_published_stamp = published_stamp;
+
   std_msgs::msg::Header header;
   header.frame_id = s.frame;
-  header.stamp    = sensorStamp(scan.stamp);
+  header.stamp    = published_stamp;
 
   const auto clouds = toLidarClouds(scan, s.params, header, s.rng);
 

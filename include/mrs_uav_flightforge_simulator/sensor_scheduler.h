@@ -18,6 +18,9 @@ struct ScheduledSensor
 // indices due at sim_time; a due time more than a period behind snaps forward, a busy sensor loses its slot
 std::vector<size_t> dueSensors(double sim_time, std::vector<ScheduledSensor>& sensors);
 
+// physics steps per lockstep Step: as few Steps as the fastest sensor allows, but never under 30 Hz so the view stays smooth
+int lockstepStride(double simulation_rate, double highest_sensor_rate);
+
 // counts fetches in flight, so a lockstep step can wait for every frame it produced
 class FetchBarrier {
 
