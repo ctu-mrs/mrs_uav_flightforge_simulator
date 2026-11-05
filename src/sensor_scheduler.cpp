@@ -1,7 +1,18 @@
 #include <mrs_uav_flightforge_simulator/sensor_scheduler.h>
 
+#include <algorithm>
+#include <cmath>
+
 namespace mrs_uav_flightforge_simulator
 {
+
+/* lockstepStride() //{ */
+
+int lockstepStride(double simulation_rate, double highest_sensor_rate) {
+  return std::max(1, int(std::floor(simulation_rate / std::max(highest_sensor_rate, 30.0))));
+}
+
+//}
 
 /* dueSensors() //{ */
 

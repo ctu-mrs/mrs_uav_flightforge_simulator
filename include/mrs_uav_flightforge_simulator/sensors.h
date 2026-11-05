@@ -90,6 +90,7 @@ struct LidarSensor
   mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2> ph_points, ph_free;
   std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
   double                                                   last_stamp = 0.0;
+  rclcpp::Time                                             last_published_stamp{0, 0, RCL_ROS_TIME};
   std::mt19937                                             rng{std::random_device{}()};  // each timer has its own thread
 };
 

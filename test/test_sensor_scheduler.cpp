@@ -99,3 +99,23 @@ TEST(Barrier, TimesOutOnAStuckFetch) {
   barrier.done();
   EXPECT_TRUE(barrier.wait(0.0));
 }
+
+TEST(Stride, FollowsTheFastestSensorWithARenderFloor) {
+  EXPECT_EQ(lockstepStride(100.0, 0.0), 3);
+  EXPECT_EQ(lockstepStride(100.0, 10.0), 3);
+  EXPECT_EQ(lockstepStride(100.0, 30.0), 3);
+  EXPECT_EQ(lockstepStride(100.0, 50.0), 2);
+  EXPECT_EQ(lockstepStride(100.0, 100.0), 1);
+  EXPECT_EQ(lockstepStride(100.0, 200.0), 1);
+  EXPECT_EQ(lockstepStride(400.0, 100.0), 4);
+  EXPECT_EQ(lockstepStride(10.0, 0.0), 1);
+}
+
+TEST(Stride, SensorRateHoldsOnACoarserGrid) {
+  auto sensors = rates({30.0});
+  int  count   = 0;
+  for (int step = 0; step <= 3333; step++) {
+    count += dueSensors(step * 0.03, sensors).size();
+  }
+  EXPECT_NEAR(count, 3000, 1);
+}
