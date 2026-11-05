@@ -6,7 +6,9 @@
 
 #include <image_transport/image_transport.hpp>
 #include <mrs_lib/publisher_handler.h>
-#include <mrs_lib/timer_handler.h>
+#include <rclcpp/time.hpp>
+
+#include <flight_forge_connector/flight_forge_connector.h>
 
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -19,12 +21,6 @@
 
 namespace mrs_uav_flightforge_simulator
 {
-
-#if USE_ROS_TIMER == 1
-typedef mrs_lib::ROSTimer TimerType;
-#else
-typedef mrs_lib::ThreadTimer TimerType;
-#endif
 
 /* sensor instances //{ */
 
@@ -41,8 +37,9 @@ struct CameraSensor
   mrs_lib::PublisherHandler<mrs_uav_flightforge_simulator::msg::InstanceMap> ph_map;
   bool                                                                      map_published = false;
   sensor_msgs::msg::CameraInfo                                              info;
-  std::shared_ptr<TimerType>                                                timer;
+  std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
   double                                                                    last_stamp = 0.0;
+  rclcpp::Time                                                              last_published_stamp{0, 0, RCL_ROS_TIME};
 };
 
 struct FisheyeSensor
@@ -54,8 +51,9 @@ struct FisheyeSensor
   image_transport::Publisher                              ph_image;
   mrs_lib::PublisherHandler<sensor_msgs::msg::CameraInfo> ph_info;
   sensor_msgs::msg::CameraInfo                            info;
-  std::shared_ptr<TimerType>                              timer;
+  std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
   double                                                  last_stamp = 0.0;
+  rclcpp::Time                                            last_published_stamp{0, 0, RCL_ROS_TIME};
 };
 
 struct StereoSensor
@@ -67,8 +65,9 @@ struct StereoSensor
   image_transport::Publisher                              ph_image_left, ph_image_right;
   mrs_lib::PublisherHandler<sensor_msgs::msg::CameraInfo> ph_info_left, ph_info_right;
   sensor_msgs::msg::CameraInfo                            info_left, info_right;
-  std::shared_ptr<TimerType>                              timer;
+  std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
   double                                                  last_stamp = 0.0;
+  rclcpp::Time                                            last_published_stamp{0, 0, RCL_ROS_TIME};
 };
 
 struct EventSensor
@@ -78,7 +77,7 @@ struct EventSensor
   std::string                                                    name;
   std::string                                                    frame;
   mrs_lib::PublisherHandler<event_camera_msgs::msg::EventPacket> ph_events;
-  std::shared_ptr<TimerType>                                     timer;
+  std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
   double                                                         last_stamp = 0.0;
 };
 
@@ -89,7 +88,7 @@ struct LidarSensor
   std::string                                              name;
   std::string                                              frame;
   mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2> ph_points, ph_free;
-  std::shared_ptr<TimerType>                               timer;
+  std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
   double                                                   last_stamp = 0.0;
   std::mt19937                                             rng{std::random_device{}()};  // each timer has its own thread
 };
@@ -101,7 +100,7 @@ struct RangefinderSensor
   std::string                                        name;
   std::string                                        frame;
   mrs_lib::PublisherHandler<sensor_msgs::msg::Range> ph_range;
-  std::shared_ptr<TimerType>                         timer;
+  std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
 };
 
 //}
