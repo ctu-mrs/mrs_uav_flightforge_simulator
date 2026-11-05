@@ -50,7 +50,9 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/common/transforms.h>
 
+#include <condition_variable>
 #include <random>
+#include <thread>
 #include <vector>
 #include <chrono>
 
@@ -59,6 +61,7 @@
 
 #include <mrs_uav_flightforge_simulator/sensor_config.h>
 #include <mrs_uav_flightforge_simulator/sensor_conversions.h>
+#include <mrs_uav_flightforge_simulator/sensor_scheduler.h>
 #include <mrs_uav_flightforge_simulator/sensors.h>
 
 //}
@@ -83,10 +86,10 @@ class FlightforgeSimulator : public rclcpp::Node {
 
 public:
   FlightforgeSimulator(rclcpp::NodeOptions options);
+  ~FlightforgeSimulator();
 
 private:
   rclcpp::CallbackGroup::SharedPtr cbgrp_main_;
-  rclcpp::CallbackGroup::SharedPtr cbgrp_sensors_;
   rclcpp::CallbackGroup::SharedPtr cbgrp_status_;
   rclcpp::CallbackGroup::SharedPtr cbgrp_unreal_sync_;
 
@@ -144,16 +147,38 @@ private:
   std::vector<std::vector<LidarSensor>>       lidars_;
   std::vector<std::vector<RangefinderSensor>> rangefinders_;
 
+  // one worker thread per sensor instance; the scheduler kicks the ones that are due
+  struct SensorWorker
+  {
+    std::function<void()>   job;
+    std::thread             thread;
+    std::mutex              mutex;
+    std::condition_variable cv;
+    bool                    pending = false;
+    bool                    stop    = false;
+    std::atomic<bool>       busy{false};
+  };
+
+  std::vector<std::unique_ptr<SensorWorker>> workers_;
+  std::vector<ScheduledSensor>               schedule_;
+  std::vector<int>                           drone_ports_;
+
+  std::atomic<int>        sensors_in_flight_{0};
+  std::mutex              mutex_in_flight_;
+  std::condition_variable cv_in_flight_;
+
   void setupSensors(size_t uav);
-  void startSensorTimers(void);
+  void startSensorWorkers(void);
+  void dispatchDueSensors(double sim_time);
+  void waitForSensors(void);
   void sendStaticTf(const std::string& uav_name, const std::string& frame, const Mount& mount, bool optical, double y_shift = 0.0);
 
-  void timerCamera(size_t uav, size_t i);
-  void timerFisheye(size_t uav, size_t i);
-  void timerStereo(size_t uav, size_t i);
-  void timerEvent(size_t uav, size_t i);
-  void timerLidar(size_t uav, size_t i);
-  void timerRangefinder(size_t uav, size_t i);
+  void fetchCamera(size_t uav, size_t i);
+  void fetchFisheye(size_t uav, size_t i);
+  void fetchStereo(size_t uav, size_t i);
+  void fetchEvent(size_t uav, size_t i);
+  void fetchLidar(size_t uav, size_t i);
+  void fetchRangefinder(size_t uav, size_t i);
 
   // | ------------------------ rtf check ----------------------- |
 
@@ -258,6 +283,23 @@ private:
 FlightforgeSimulator::FlightforgeSimulator(rclcpp::NodeOptions options) : Node("mrs_uav_flightforge_simulator", options) {
 
   timer_init_ = this->create_wall_timer(std::chrono::duration<double>(0.1s), std::bind(&FlightforgeSimulator::timerInit, this));
+}
+
+FlightforgeSimulator::~FlightforgeSimulator() {
+
+  for (auto& w : workers_) {
+    {
+      std::scoped_lock lock(w->mutex);
+      w->stop = true;
+    }
+    w->cv.notify_one();
+  }
+
+  for (auto& w : workers_) {
+    if (w->thread.joinable()) {
+      w->thread.join();
+    }
+  }
 }
 
 //}
@@ -641,6 +683,7 @@ void FlightforgeSimulator::timerInit() {
     std::shared_ptr<ueds_connector::UedsConnector> ueds_connector = std::make_shared<ueds_connector::UedsConnector>(_simulator_ip_, port);
 
     ueds_connectors_.push_back(ueds_connector);
+    drone_ports_.push_back(port);
 
     auto connect_result = ueds_connector->Connect();
 
@@ -697,7 +740,7 @@ void FlightforgeSimulator::timerInit() {
   timer_unreal_sync_ =
       node_->create_wall_timer(std::chrono::duration<double>(1.0 / _clock_rate_), std::bind(&FlightforgeSimulator::timerUnrealSync, this), cbgrp_unreal_sync_);
 
-  startSensorTimers();
+  startSensorWorkers();
 
   // | ----------------------- scope timer ---------------------- |
 
@@ -776,6 +819,8 @@ void FlightforgeSimulator::timerMain() {
       }
 
       publishPoses();
+
+      dispatchDueSensors(sim_time.seconds());
 
       last_step_time_ = sim_time;
     }
@@ -1224,6 +1269,14 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     exit(1);
   };
 
+  const auto connect = [&](const std::string& name) {
+    auto c = std::make_shared<ueds_connector::UedsConnector>(_simulator_ip_, drone_ports_[uav]);
+    if (c->Connect() != 1) {
+      fail("could not open a connection for " + name);
+    }
+    return c;
+  };
+
   const auto add = [&](int type, const std::string& name) {
     const auto [ok, id] = connector->AddSensor(type);
     if (!ok) {
@@ -1269,6 +1322,7 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
       s.name   = type_name + "_" + std::to_string(i);
       s.frame  = uav_name + "/" + s.name;
       s.id     = add(type, s.name);
+      s.connector = connect(s.name);
 
       ueds_connector::RgbCameraConfig cfg{};
 
@@ -1318,6 +1372,7 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     s.name   = "fisheye_" + std::to_string(i);
     s.frame  = uav_name + "/" + s.name;
     s.id     = add(ueds_connector::SENSOR_FISHEYE_CAMERA, s.name);
+    s.connector = connect(s.name);
 
     ueds_connector::FisheyeCameraConfig cfg{};
 
@@ -1359,6 +1414,7 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     s.frame_left  = uav_name + "/" + s.name + "_left";
     s.frame_right = uav_name + "/" + s.name + "_right";
     s.id          = add(ueds_connector::SENSOR_STEREO_CAMERA, s.name);
+    s.connector = connect(s.name);
 
     const Mount& m          = s.params.mount;
     const double half_shift = s.params.baseline / 2.0;
@@ -1428,6 +1484,7 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     s.name   = "event_" + std::to_string(i);
     s.frame  = uav_name + "/" + s.name;
     s.id     = add(ueds_connector::SENSOR_EVENT_CAMERA, s.name);
+    s.connector = connect(s.name);
 
     ueds_connector::EventCameraConfig cfg{};
 
@@ -1464,6 +1521,7 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     s.name   = "lidar_" + std::to_string(i);
     s.frame  = uav_name + "/" + s.name;
     s.id     = add(s.params.livox ? ueds_connector::SENSOR_LIDAR_LIVOX : ueds_connector::SENSOR_LIDAR, s.name);
+    s.connector = connect(s.name);
 
     ueds_connector::LidarConfig cfg{};
 
@@ -1511,6 +1569,7 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     s.name     = "rangefinder_" + std::to_string(i);
     s.frame    = uav_name + "/" + s.name;
     s.id       = add(ueds_connector::SENSOR_RANGEFINDER, s.name);
+    s.connector = connect(s.name);
     s.ph_range = mrs_lib::PublisherHandler<sensor_msgs::msg::Range>(node_, "/" + uav_name + "/" + s.name + "/range");
 
     sendStaticTf(uav_name, s.frame, s.params.mount, false);
@@ -1521,45 +1580,110 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
 
 //}
 
-/* startSensorTimers() //{ */
+/* startSensorWorkers() //{ */
 
-void FlightforgeSimulator::startSensorTimers(void) {
+void FlightforgeSimulator::startSensorWorkers(void) {
 
-  mrs_lib::TimerHandlerOptions opts;
-
-  opts.node           = node_;
-  opts.callback_group = cbgrp_sensors_;
-  opts.autostart      = true;
-
-  const auto start = [&](auto& sensors, auto callback) {
+  const auto add = [this](auto& sensors, auto fetch) {
     for (size_t uav = 0; uav < sensors.size(); uav++) {
       for (size_t i = 0; i < sensors[uav].size(); i++) {
-        std::function<void()> fn = [this, callback, uav, i]() { (this->*callback)(uav, i); };
-        sensors[uav][i].timer    = std::make_shared<TimerType>(opts, rclcpp::Rate(sensors[uav][i].params.rate, clock_), fn);
+
+        auto w = std::make_unique<SensorWorker>();
+        w->job = [this, fetch, uav, i]() { (this->*fetch)(uav, i); };
+
+        schedule_.push_back(ScheduledSensor{sensors[uav][i].params.rate, 0.0, false});
+        workers_.push_back(std::move(w));
       }
     }
   };
 
-  start(cameras_, &FlightforgeSimulator::timerCamera);
-  start(fisheyes_, &FlightforgeSimulator::timerFisheye);
-  start(stereos_, &FlightforgeSimulator::timerStereo);
-  start(events_, &FlightforgeSimulator::timerEvent);
-  start(lidars_, &FlightforgeSimulator::timerLidar);
-  start(rangefinders_, &FlightforgeSimulator::timerRangefinder);
+  add(cameras_, &FlightforgeSimulator::fetchCamera);
+  add(fisheyes_, &FlightforgeSimulator::fetchFisheye);
+  add(stereos_, &FlightforgeSimulator::fetchStereo);
+  add(events_, &FlightforgeSimulator::fetchEvent);
+  add(lidars_, &FlightforgeSimulator::fetchLidar);
+  add(rangefinders_, &FlightforgeSimulator::fetchRangefinder);
+
+  for (auto& w : workers_) {
+
+    SensorWorker* worker = w.get();
+
+    worker->thread = std::thread([this, worker]() {
+      while (true) {
+        {
+          std::unique_lock lock(worker->mutex);
+          worker->cv.wait(lock, [worker]() { return worker->pending || worker->stop; });
+          if (worker->stop) {
+            return;
+          }
+          worker->pending = false;
+        }
+
+        worker->job();
+
+        worker->busy = false;
+        {
+          std::scoped_lock lock(mutex_in_flight_);
+          sensors_in_flight_--;
+        }
+        cv_in_flight_.notify_all();
+      }
+    });
+  }
 }
 
 //}
 
-/* timerCamera() //{ */
+/* dispatchDueSensors() //{ */
 
-void FlightforgeSimulator::timerCamera(size_t uav, size_t i) {
+void FlightforgeSimulator::dispatchDueSensors(double sim_time) {
+
+  for (size_t i = 0; i < workers_.size(); i++) {
+    schedule_[i].busy = workers_[i]->busy.load();
+  }
+
+  for (size_t i : dueSensors(sim_time, schedule_)) {
+
+    SensorWorker& w = *workers_[i];
+
+    w.busy = true;
+    {
+      std::scoped_lock lock(mutex_in_flight_);
+      sensors_in_flight_++;
+    }
+    {
+      std::scoped_lock lock(w.mutex);
+      w.pending = true;
+    }
+    w.cv.notify_one();
+  }
+}
+
+//}
+
+/* waitForSensors() //{ */
+
+void FlightforgeSimulator::waitForSensors(void) {
+
+  std::unique_lock lock(mutex_in_flight_);
+
+  if (!cv_in_flight_.wait_for(lock, std::chrono::seconds(5), [this]() { return sensors_in_flight_.load() == 0; })) {
+    RCLCPP_WARN(node_->get_logger(), "%d sensor fetches did not return within 5 s", sensors_in_flight_.load());
+  }
+}
+
+//}
+
+/* fetchCamera() //{ */
+
+void FlightforgeSimulator::fetchCamera(size_t uav, size_t i) {
 
   if (!is_initialized_) {
     return;
   }
 
   CameraSensor& s         = cameras_[uav][i];
-  auto&         connector = ueds_connectors_[uav];
+  auto&         connector = s.connector;
 
   bool                                   res   = false;
   double                                 stamp = 0;
@@ -1568,23 +1692,19 @@ void FlightforgeSimulator::timerCamera(size_t uav, size_t i) {
   int                                    depth_width = 0, depth_height = 0;
   std::optional<sensor_msgs::msg::Image> image;
 
-  {
-    std::scoped_lock lock(mutex_flightforge_);
-
-    switch (s.type) {
-      case ueds_connector::SENSOR_RGB_CAMERA:
-        std::tie(res, frame_data, stamp, std::ignore) = connector->GetRgbCameraData(s.id);
-        break;
-      case ueds_connector::SENSOR_RGB_SEG_CAMERA:
-        std::tie(res, frame_data, stamp, std::ignore) = connector->GetRgbSegmented(s.id);
-        break;
-      case ueds_connector::SENSOR_INSTANCE_SEG_CAMERA:
-        res = connector->GetInstanceSegData(frame_data, stamp, s.id);
-        break;
-      default:
-        res = connector->GetDepthCameraData(depth, depth_width, depth_height, stamp, s.id);
-        break;
-    }
+  switch (s.type) {
+    case ueds_connector::SENSOR_RGB_CAMERA:
+      std::tie(res, frame_data, stamp, std::ignore) = connector->GetRgbCameraData(s.id);
+      break;
+    case ueds_connector::SENSOR_RGB_SEG_CAMERA:
+      std::tie(res, frame_data, stamp, std::ignore) = connector->GetRgbSegmented(s.id);
+      break;
+    case ueds_connector::SENSOR_INSTANCE_SEG_CAMERA:
+      res = connector->GetInstanceSegData(frame_data, stamp, s.id);
+      break;
+    default:
+      res = connector->GetDepthCameraData(depth, depth_width, depth_height, stamp, s.id);
+      break;
   }
 
   if (!res) {
@@ -1592,15 +1712,21 @@ void FlightforgeSimulator::timerCamera(size_t uav, size_t i) {
     return;
   }
 
-  if (stamp == s.last_stamp) {
+  if (stamp <= s.last_stamp) {
     return;
   }
 
   s.last_stamp = stamp;
 
+  const rclcpp::Time published_stamp = flightforgeTimeToSimtime(stamp);
+  if (published_stamp <= s.last_published_stamp) {
+    return;
+  }
+  s.last_published_stamp = published_stamp;
+
   std_msgs::msg::Header header;
   header.frame_id = s.frame;
-  header.stamp    = flightforgeTimeToSimtime(stamp);
+  header.stamp    = published_stamp;
 
   if (s.type == ueds_connector::SENSOR_DEPTH_CAMERA) {
     image = toDepthImage(depth, s.info.width, s.info.height, header);
@@ -1627,7 +1753,6 @@ void FlightforgeSimulator::timerCamera(size_t uav, size_t i) {
     std::vector<Serializable::Drone::InstanceSegMapEntry> entries;
 
     {
-      std::scoped_lock lock(mutex_flightforge_);
       std::tie(ok, entries) = connector->GetInstanceSegMap(s.id);
     }
 
@@ -1640,9 +1765,9 @@ void FlightforgeSimulator::timerCamera(size_t uav, size_t i) {
 
 //}
 
-/* timerFisheye() //{ */
+/* fetchFisheye() //{ */
 
-void FlightforgeSimulator::timerFisheye(size_t uav, size_t i) {
+void FlightforgeSimulator::fetchFisheye(size_t uav, size_t i) {
 
   if (!is_initialized_) {
     return;
@@ -1654,21 +1779,24 @@ void FlightforgeSimulator::timerFisheye(size_t uav, size_t i) {
   double                     stamp;
   std::vector<unsigned char> compressed;
 
-  {
-    std::scoped_lock lock(mutex_flightforge_);
-    std::tie(res, compressed, stamp, std::ignore) = ueds_connectors_[uav]->GetFisheyeCameraData(s.id);
-  }
+  std::tie(res, compressed, stamp, std::ignore) = s.connector->GetFisheyeCameraData(s.id);
 
   if (!res) {
     RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s", uav_names[uav].c_str(), s.name.c_str());
     return;
   }
 
-  if (stamp == s.last_stamp) {
+  if (stamp <= s.last_stamp) {
     return;
   }
 
   s.last_stamp = stamp;
+
+  const rclcpp::Time published_stamp = flightforgeTimeToSimtime(stamp);
+  if (published_stamp <= s.last_published_stamp) {
+    return;
+  }
+  s.last_published_stamp = published_stamp;
 
   const auto frame = decodeFrame(compressed, s.info.width, s.info.height);
 
@@ -1680,7 +1808,7 @@ void FlightforgeSimulator::timerFisheye(size_t uav, size_t i) {
 
   std_msgs::msg::Header header;
   header.frame_id = s.frame;
-  header.stamp    = flightforgeTimeToSimtime(stamp);
+  header.stamp    = published_stamp;
 
   s.ph_image.publish(toColorImage(*frame, header));
 
@@ -1691,9 +1819,9 @@ void FlightforgeSimulator::timerFisheye(size_t uav, size_t i) {
 
 //}
 
-/* timerStereo() //{ */
+/* fetchStereo() //{ */
 
-void FlightforgeSimulator::timerStereo(size_t uav, size_t i) {
+void FlightforgeSimulator::fetchStereo(size_t uav, size_t i) {
 
   if (!is_initialized_) {
     return;
@@ -1705,21 +1833,24 @@ void FlightforgeSimulator::timerStereo(size_t uav, size_t i) {
   double                     stamp;
   std::vector<unsigned char> compressed_left, compressed_right;
 
-  {
-    std::scoped_lock lock(mutex_flightforge_);
-    std::tie(res, compressed_left, compressed_right, stamp) = ueds_connectors_[uav]->GetStereoCameraData(s.id);
-  }
+  std::tie(res, compressed_left, compressed_right, stamp) = s.connector->GetStereoCameraData(s.id);
 
   if (!res) {
     RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s", uav_names[uav].c_str(), s.name.c_str());
     return;
   }
 
-  if (stamp == s.last_stamp) {
+  if (stamp <= s.last_stamp) {
     return;
   }
 
   s.last_stamp = stamp;
+
+  const rclcpp::Time published_stamp = flightforgeTimeToSimtime(stamp);
+  if (published_stamp <= s.last_published_stamp) {
+    return;
+  }
+  s.last_published_stamp = published_stamp;
 
   const auto left  = decodeFrame(compressed_left, s.info_left.width, s.info_left.height);
   const auto right = decodeFrame(compressed_right, s.info_right.width, s.info_right.height);
@@ -1732,7 +1863,7 @@ void FlightforgeSimulator::timerStereo(size_t uav, size_t i) {
 
   std_msgs::msg::Header header_left, header_right;
 
-  header_left.stamp     = flightforgeTimeToSimtime(stamp);
+  header_left.stamp     = published_stamp;
   header_left.frame_id  = s.frame_left;
   header_right.stamp    = header_left.stamp;
   header_right.frame_id = s.frame_right;
@@ -1751,9 +1882,9 @@ void FlightforgeSimulator::timerStereo(size_t uav, size_t i) {
 
 //}
 
-/* timerEvent() //{ */
+/* fetchEvent() //{ */
 
-void FlightforgeSimulator::timerEvent(size_t uav, size_t i) {
+void FlightforgeSimulator::fetchEvent(size_t uav, size_t i) {
 
   if (!is_initialized_) {
     return;
@@ -1764,10 +1895,7 @@ void FlightforgeSimulator::timerEvent(size_t uav, size_t i) {
   bool                         res;
   ueds_connector::CameraEvents events;
 
-  {
-    std::scoped_lock lock(mutex_flightforge_);
-    std::tie(res, events) = ueds_connectors_[uav]->GetEventCameraData(s.id);
-  }
+  std::tie(res, events) = s.connector->GetEventCameraData(s.id);
 
   if (!res) {
     RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s", uav_names[uav].c_str(), s.name.c_str());
@@ -1794,9 +1922,9 @@ void FlightforgeSimulator::timerEvent(size_t uav, size_t i) {
 
 //}
 
-/* timerLidar() //{ */
+/* fetchLidar() //{ */
 
-void FlightforgeSimulator::timerLidar(size_t uav, size_t i) {
+void FlightforgeSimulator::fetchLidar(size_t uav, size_t i) {
 
   if (!is_initialized_) {
     return;
@@ -1807,10 +1935,7 @@ void FlightforgeSimulator::timerLidar(size_t uav, size_t i) {
   bool                      res;
   ueds_connector::LidarScan scan;
 
-  {
-    std::scoped_lock lock(mutex_flightforge_);
-    std::tie(res, scan) = ueds_connectors_[uav]->GetLidarScan(s.params.labels, s.params.intensity, s.id);
-  }
+  std::tie(res, scan) = s.connector->GetLidarScan(s.params.labels, s.params.intensity, s.id);
 
   if (!res) {
     RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s", uav_names[uav].c_str(), s.name.c_str());
@@ -1844,9 +1969,9 @@ void FlightforgeSimulator::timerLidar(size_t uav, size_t i) {
 
 //}
 
-/* timerRangefinder() //{ */
+/* fetchRangefinder() //{ */
 
-void FlightforgeSimulator::timerRangefinder(size_t uav, size_t i) {
+void FlightforgeSimulator::fetchRangefinder(size_t uav, size_t i) {
 
   if (!is_initialized_) {
     return;
@@ -1857,10 +1982,7 @@ void FlightforgeSimulator::timerRangefinder(size_t uav, size_t i) {
   bool   res;
   double range;
 
-  {
-    std::scoped_lock lock(mutex_flightforge_);
-    std::tie(res, range) = ueds_connectors_[uav]->GetRangefinderData(s.id);
-  }
+  std::tie(res, range) = s.connector->GetRangefinderData(s.id);
 
   if (!res) {
     RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s", uav_names[uav].c_str(), s.name.c_str());

@@ -99,6 +99,7 @@ add_library(MrsUavFlightforgeSimulator_FlightforgeConnector SHARED
 add_library(MrsUavFlightforgeSimulator_Sensors SHARED
   src/sensor_config.cpp
   src/sensor_conversions.cpp
+  src/sensor_scheduler.cpp
 )
 
 target_link_libraries(MrsUavFlightforgeSimulator_Sensors
@@ -202,6 +203,7 @@ if(BUILD_TESTING)
     test/test_image_conversions.cpp
     test/test_lidar_conversions.cpp
     test/test_event_conversions.cpp
+    test/test_sensor_scheduler.cpp
   )
 
   target_link_libraries(test_sensors
