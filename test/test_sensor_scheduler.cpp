@@ -119,3 +119,11 @@ TEST(Stride, SensorRateHoldsOnACoarserGrid) {
   }
   EXPECT_NEAR(count, 3000, 1);
 }
+
+TEST(ClockGrid, NeedsAWholeNumberOfTicksPerPhysicsStep) {
+  EXPECT_TRUE(lockstepClockValid(400.0, 100.0));
+  EXPECT_TRUE(lockstepClockValid(300.0, 100.0));
+  EXPECT_TRUE(lockstepClockValid(100.0, 100.0));
+  EXPECT_FALSE(lockstepClockValid(250.0, 100.0));
+  EXPECT_FALSE(lockstepClockValid(150.0, 100.0));
+}

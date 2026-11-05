@@ -9,7 +9,7 @@ mrs_uav_flightforge_simulator:
   # The game mode port of the simulator (drone ports are assigned by the simulator on spawn).
   simulator_port: 8551
 
-  # free_running paces itself on wall time; lockstep steps the simulator once per physics step, so sensor rates are exact in sim time
+  # "lockstep" makes sensor rates exact in sim time, "free_running" stays closer to real time
   time_model: "lockstep"
 
   # the rate of publishing of /clock

@@ -14,6 +14,15 @@ int lockstepStride(double simulation_rate, double highest_sensor_rate) {
 
 //}
 
+/* lockstepClockValid() //{ */
+
+bool lockstepClockValid(double clock_rate, double simulation_rate) {
+  const double ticks = clock_rate / simulation_rate;
+  return ticks >= 1.0 && std::abs(ticks - std::round(ticks)) < 1e-6;
+}
+
+//}
+
 /* dueSensors() //{ */
 
 std::vector<size_t> dueSensors(double sim_time, std::vector<ScheduledSensor>& sensors) {
