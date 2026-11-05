@@ -68,6 +68,15 @@ cd /opt/ros/jazzy/share/mrs_uav_flightforge_simulator
 ```
 10. The first start might require hitting "CTRL+C" in the `roscore` tab of the tmux session. The roscore is always stuck for the first time after rebooting the computer.
 
+## Time models
+
+The ROS node has two ways of keeping the simulator and ROS time together, chosen with `time_model` in the config:
+
+- **`lockstep`** (default): the node owns time. It steps the simulator, then fetches every sensor that is due and waits for them before the next step. Sensor rates are exact in simulated time and every frame belongs to a known step, so results repeat. Wall-clock speed is whatever the GPU allows, up to `realtime_factor`.
+- **`free_running`**: the simulator runs on its own and the node paces ROS time from its frame rate with `dynamic_rtf`. Closer to real time on a loaded machine, but cameras deliver what the frame rate allows, not always their configured `rate`.
+
+In lockstep the simulator advances on a grid: every physics step if a sensor runs at `simulation_rate`, otherwise as coarsely as the fastest sensor allows, and never below 30 Hz. A sensor's rate holds on average, with its stamps on grid points. Raise `simulation_rate` for a finer grid.
+
 ## Citing this work
 
 If you use this simulator in your research, please cite the following paper:

@@ -110,6 +110,19 @@ averages 30 Hz with stamps on tick boundaries. A camera needing a finer grid sho
 Free-running keeps today's behaviour (wall timers, dilation, `flightforgeTimeToSimtime`),
 driven by the same scheduler so the two modes share one code path for fetching.
 
+### As built
+
+Three things differ from the design above:
+
+- Lockstep cameras run in `CAPTURE_ON_DEMAND`, not on `capture_rate_`: each due fetch renders that
+  step's frame. The plugin's due times and the node's could drift a tick apart, which would drop
+  frames as duplicates, and on demand nothing renders unless it is due. `capture_rate_` stays
+  available to connector clients but the node does not send it.
+- Sensor sockets use a 10 s receive timeout in lockstep, since a frame takes as long as the GPU
+  needs; the connector's default 1 s turned a slow frame into a failed fetch.
+- Free-running sensors are dispatched by the same scheduler, and a camera frame whose converted
+  stamp does not move forward is dropped.
+
 ## Error handling
 
 - `Step` returning false, or timing out (the connector allows 90 s for `step`), is fatal:

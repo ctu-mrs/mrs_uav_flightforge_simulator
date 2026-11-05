@@ -10,7 +10,7 @@ mrs_uav_flightforge_simulator:
   simulator_port: 8551
 
   # free_running paces itself on wall time; lockstep steps the simulator once per physics step, so sensor rates are exact in sim time
-  time_model: "free_running"
+  time_model: "lockstep"
 
   # the rate of publishing of /clock
   clock_rate:      400.0 # Hz, should be >= simulation_rate, ideally in whole multiples of simulation_rate
