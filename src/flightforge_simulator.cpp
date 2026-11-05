@@ -163,14 +163,18 @@ private:
   std::vector<ScheduledSensor>               schedule_;
   std::vector<int>                           drone_ports_;
 
-  std::atomic<int>        sensors_in_flight_{0};
-  std::mutex              mutex_in_flight_;
-  std::condition_variable cv_in_flight_;
+  FetchBarrier fetches_;
+
+  // in lockstep the node owns time: one Step per physics step, every fetch done before the next
+  bool         lockstep_ = false;
+  rclcpp::Time step_stamp_;
+
+  void         stepSimulator(const rclcpp::Time& sim_time);
+  rclcpp::Time sensorStamp(double capture_stamp);
 
   void setupSensors(size_t uav);
   void startSensorWorkers(void);
   void dispatchDueSensors(double sim_time);
-  void waitForSensors(void);
   void sendStaticTf(const std::string& uav_name, const std::string& frame, const Mount& mount, bool optical, double y_shift = 0.0);
 
   void fetchCamera(size_t uav, size_t i);
@@ -300,6 +304,17 @@ FlightforgeSimulator::~FlightforgeSimulator() {
       w->thread.join();
     }
   }
+
+  if (lockstep_ && ueds_game_controller_) {
+
+    std::scoped_lock lock(mutex_flightforge_);
+
+    double applied;
+
+    ueds_game_controller_->SetLockstep(false);
+    ueds_game_controller_->SetFixedTimestep(0.0, 0.0, applied);
+    ueds_game_controller_->SetCameraCaptureMode(ueds_connector::CAPTURE_ALL_FRAMES);
+  }
 }
 
 //}
@@ -309,7 +324,9 @@ FlightforgeSimulator::~FlightforgeSimulator() {
 static const std::vector<std::string> kGameModeOps = {"get_api_version",  "get_time",           "get_fps",
                                                       "get_world_origin", "switch_world_level", "spawn_drone_at_location",
                                                       "set_weather",      "set_daytime",        "set_graphics_settings",
-                                                      "set_forest_density", "set_forest_hilly_level", "set_mutual_visibility"};
+                                                      "set_forest_density", "set_forest_hilly_level", "set_mutual_visibility",
+                                                      "set_time_dilation",  "set_fixed_timestep",     "set_lockstep",
+                                                      "step",               "set_camera_capture_mode"};
 
 static const std::vector<std::string> kDroneOps = {"set_location_and_rotation_async", "get_crash_state",           "add_sensor",
                                                    "get_camera_info",                 "set_rgb_camera_config",     "set_stereo_camera_config",
@@ -480,6 +497,17 @@ void FlightforgeSimulator::timerInit() {
     }
   }
 
+  std::string time_model;
+  param_loader.loadParam(yaml_prefix + "time_model", time_model);
+
+  if (time_model != "free_running" && time_model != "lockstep") {
+    RCLCPP_ERROR(node_->get_logger(), "time_model must be \"free_running\" or \"lockstep\", got \"%s\"", time_model.c_str());
+    rclcpp::shutdown();
+    exit(1);
+  }
+
+  lockstep_ = time_model == "lockstep";
+
   param_loader.loadParam(yaml_prefix + "weather_type", weather_type_);
   param_loader.loadParam(yaml_prefix + "graphics_settings", flightforge_graphics_settings_enum_);
   param_loader.loadParam(yaml_prefix + "uavs_mutual_visibility", uavs_mutual_visibility_);
@@ -586,6 +614,18 @@ void FlightforgeSimulator::timerInit() {
     }
     /* TODO: This should be probably shomehow be dynamic and set to a machine/world combo */
     std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+
+  {
+    double applied;
+
+    // a node that died in lockstep leaves the world paused
+    if (!ueds_game_controller_->SetLockstep(false) || !ueds_game_controller_->SetFixedTimestep(0.0, 0.0, applied) ||
+        !ueds_game_controller_->SetCameraCaptureMode(lockstep_ ? ueds_connector::CAPTURE_ON_DEMAND : ueds_connector::CAPTURE_ALL_FRAMES)) {
+      RCLCPP_ERROR(node_->get_logger(), "could not reset the FlightForge time model");
+      rclcpp::shutdown();
+      exit(1);
+    }
   }
 
   res = ueds_game_controller_->SetGraphicsSettings(ueds_connector::GraphicsSettings::Name2Id().at(flightforge_graphics_settings_enum_));
@@ -748,6 +788,24 @@ void FlightforgeSimulator::timerInit() {
 
   // | -------------------- finishing methods ------------------- |
 
+  // | ------------------------ time model ---------------------- |
+
+  if (lockstep_) {
+
+    double applied;
+
+    if (!ueds_game_controller_->SetTimeDilation(1.0, applied) || !ueds_game_controller_->SetFixedTimestep(1.0 / _simulation_rate_, 0.0, applied) ||
+        !ueds_game_controller_->SetLockstep(true)) {
+      RCLCPP_ERROR(node_->get_logger(), "could not enter lockstep");
+      rclcpp::shutdown();
+      exit(1);
+    }
+
+    flightforge_time_dilation_ = 1.0;
+
+    RCLCPP_INFO(node_->get_logger(), "lockstep at %.1f Hz", _simulation_rate_);
+  }
+
   // | ----------------------- finish init ---------------------- |
 
   is_initialized_ = true;
@@ -820,7 +878,11 @@ void FlightforgeSimulator::timerMain() {
 
       publishPoses();
 
-      dispatchDueSensors(sim_time.seconds());
+      if (lockstep_) {
+        stepSimulator(sim_time);
+      } else {
+        dispatchDueSensors(sim_time.seconds());
+      }
 
       last_step_time_ = sim_time;
     }
@@ -871,14 +933,15 @@ void FlightforgeSimulator::timerStatus() {
 
   const double flightforge_rtf = flightforge_fps_ / highest_fps;
 
-  const double desired_rtf = (drs_params.dynamic_rtf && flightforge_rtf < drs_params.realtime_factor) ? flightforge_rtf : drs_params.realtime_factor;
+  const double desired_rtf =
+      (!lockstep_ && drs_params.dynamic_rtf && flightforge_rtf < drs_params.realtime_factor) ? flightforge_rtf : drs_params.realtime_factor;
 
   timer_main_->cancel();
   timer_main_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / (_clock_rate_ * desired_rtf)), std::bind(&FlightforgeSimulator::timerMain, this),
                                          cbgrp_main_);
 
   // the sim's own clock drives Livox point counts and motion, so it must run at the ROS rate
-  if (std::abs(desired_rtf - flightforge_time_dilation_) > 0.01 * desired_rtf) {
+  if (!lockstep_ && std::abs(desired_rtf - flightforge_time_dilation_) > 0.01 * desired_rtf) {
 
     std::scoped_lock lock(mutex_flightforge_);
 
@@ -911,7 +974,9 @@ void FlightforgeSimulator::timerUnrealSync() {
     return;
   }
 
-  updateUnrealPoses(false);
+  if (!lockstep_) {
+    updateUnrealPoses(false);
+  }
 }
 
 //}
@@ -952,7 +1017,7 @@ void FlightforgeSimulator::timerTimeSync() {
     ue_sync_end   = wall_clock_->now().seconds();
   }
 
-  if (res_ue) {
+  if (res_ue && !lockstep_) {
 
     auto [sim_now, sim_now_wall] = mrs_lib::get_mutexed(mutex_sim_time_, sim_time_, sim_time_wall_);
     auto actual_rtf              = mrs_lib::get_mutexed(mutex_actual_rtf_, actual_rtf_);
@@ -1273,6 +1338,10 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     auto c = std::make_shared<ueds_connector::UedsConnector>(_simulator_ip_, drone_ports_[uav]);
     if (c->Connect() != 1) {
       fail("could not open a connection for " + name);
+    }
+    // a lockstep frame takes as long as the GPU needs
+    if (lockstep_) {
+      c->SetReceiveTimeoutMs(10000);
     }
     return c;
   };
@@ -1622,11 +1691,7 @@ void FlightforgeSimulator::startSensorWorkers(void) {
         worker->job();
 
         worker->busy = false;
-        {
-          std::scoped_lock lock(mutex_in_flight_);
-          sensors_in_flight_--;
-        }
-        cv_in_flight_.notify_all();
+        fetches_.done();
       }
     });
   }
@@ -1647,10 +1712,7 @@ void FlightforgeSimulator::dispatchDueSensors(double sim_time) {
     SensorWorker& w = *workers_[i];
 
     w.busy = true;
-    {
-      std::scoped_lock lock(mutex_in_flight_);
-      sensors_in_flight_++;
-    }
+    fetches_.add();
     {
       std::scoped_lock lock(w.mutex);
       w.pending = true;
@@ -1661,15 +1723,48 @@ void FlightforgeSimulator::dispatchDueSensors(double sim_time) {
 
 //}
 
-/* waitForSensors() //{ */
+/* stepSimulator() //{ */
 
-void FlightforgeSimulator::waitForSensors(void) {
+void FlightforgeSimulator::stepSimulator(const rclcpp::Time& sim_time) {
 
-  std::unique_lock lock(mutex_in_flight_);
+  updateUnrealPoses(false);
 
-  if (!cv_in_flight_.wait_for(lock, std::chrono::seconds(5), [this]() { return sensors_in_flight_.load() == 0; })) {
-    RCLCPP_WARN(node_->get_logger(), "%d sensor fetches did not return within 5 s", sensors_in_flight_.load());
+  bool     res;
+  double   ue_world_time;
+  uint64_t ticks;
+
+  {
+    std::scoped_lock lock(mutex_flightforge_);
+    res = ueds_game_controller_->Step(1, ue_world_time, ticks);
   }
+
+  if (!res) {
+    RCLCPP_ERROR(node_->get_logger(), "FlightForge did not complete a lockstep step, is the simulator still running?");
+    rclcpp::shutdown();
+    exit(1);
+  }
+
+  step_stamp_ = sim_time;
+
+  {
+    std::scoped_lock lock(mutex_wall_time_offset_);
+    ue_world_offset_       = sim_time.seconds() - ue_world_time;
+    ue_world_offset_valid_ = true;
+  }
+
+  dispatchDueSensors(sim_time.seconds());
+
+  if (!fetches_.wait(10.0)) {
+    RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "sensor fetches did not return within 10 s of a lockstep step");
+  }
+}
+
+//}
+
+/* sensorStamp() //{ */
+
+rclcpp::Time FlightforgeSimulator::sensorStamp(double capture_stamp) {
+  return lockstep_ ? step_stamp_ : flightforgeTimeToSimtime(capture_stamp);
 }
 
 //}
@@ -1718,7 +1813,7 @@ void FlightforgeSimulator::fetchCamera(size_t uav, size_t i) {
 
   s.last_stamp = stamp;
 
-  const rclcpp::Time published_stamp = flightforgeTimeToSimtime(stamp);
+  const rclcpp::Time published_stamp = sensorStamp(stamp);
   if (published_stamp <= s.last_published_stamp) {
     return;
   }
@@ -1792,7 +1887,7 @@ void FlightforgeSimulator::fetchFisheye(size_t uav, size_t i) {
 
   s.last_stamp = stamp;
 
-  const rclcpp::Time published_stamp = flightforgeTimeToSimtime(stamp);
+  const rclcpp::Time published_stamp = sensorStamp(stamp);
   if (published_stamp <= s.last_published_stamp) {
     return;
   }
@@ -1846,7 +1941,7 @@ void FlightforgeSimulator::fetchStereo(size_t uav, size_t i) {
 
   s.last_stamp = stamp;
 
-  const rclcpp::Time published_stamp = flightforgeTimeToSimtime(stamp);
+  const rclcpp::Time published_stamp = sensorStamp(stamp);
   if (published_stamp <= s.last_published_stamp) {
     return;
   }
@@ -1950,7 +2045,7 @@ void FlightforgeSimulator::fetchLidar(size_t uav, size_t i) {
 
   std_msgs::msg::Header header;
   header.frame_id = s.frame;
-  header.stamp    = flightforgeTimeToSimtime(scan.stamp);
+  header.stamp    = sensorStamp(scan.stamp);
 
   const auto clouds = toLidarClouds(scan, s.params, header, s.rng);
 

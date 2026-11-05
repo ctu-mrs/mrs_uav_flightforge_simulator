@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <thread>
+
 #include <mrs_uav_flightforge_simulator/sensor_scheduler.h>
 
 using namespace mrs_uav_flightforge_simulator;
@@ -56,4 +60,42 @@ TEST(Scheduler, NotDueBeforeItsTime) {
   EXPECT_TRUE(dueSensors(0.01, sensors).empty());
   EXPECT_TRUE(dueSensors(0.02, sensors).empty());
   EXPECT_EQ(dueSensors(0.04, sensors).size(), 1u);
+}
+
+TEST(Barrier, WaitsForEveryFetchInAnyOrder) {
+  FetchBarrier barrier;
+  barrier.add();
+  barrier.add();
+  barrier.add();
+
+  std::atomic<int> finished{0};
+
+  std::vector<std::thread> workers;
+  for (int delay_ms : {30, 5, 15}) {
+    workers.emplace_back([&, delay_ms]() {
+      std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+      finished++;
+      barrier.done();
+    });
+  }
+
+  EXPECT_TRUE(barrier.wait(2.0));
+  EXPECT_EQ(finished.load(), 3);
+
+  for (auto& w : workers) {
+    w.join();
+  }
+}
+
+TEST(Barrier, EmptyDoesNotBlock) {
+  FetchBarrier barrier;
+  EXPECT_TRUE(barrier.wait(0.0));
+}
+
+TEST(Barrier, TimesOutOnAStuckFetch) {
+  FetchBarrier barrier;
+  barrier.add();
+  EXPECT_FALSE(barrier.wait(0.02));
+  barrier.done();
+  EXPECT_TRUE(barrier.wait(0.0));
 }
