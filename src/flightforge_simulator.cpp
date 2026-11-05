@@ -1581,7 +1581,7 @@ void FlightforgeSimulator::timerTimeSync() {
   {
     std::scoped_lock lock(mutex_wall_time_offset_);
 
-    wall_time_offset_ = new_wall_time_offset;
+    wall_time_offset_ = 0.99*wall_time_offset_ + 0.01*new_wall_time_offset;
   }
 
   last_real_ = current_real;
@@ -2836,18 +2836,15 @@ void FlightforgeSimulator::publishStaticTfs(void) {
 rclcpp::Time FlightforgeSimulator::flightforgeTimeToSimtime(const double flightforge_time) {
 
   auto wall_time_offset = mrs_lib::get_mutexed(mutex_wall_time_offset_, wall_time_offset_);
-  auto actual_rtf       = mrs_lib::get_mutexed(mutex_actual_rtf_, actual_rtf_);
 
   double relative_wall_age = wall_clock_->now().seconds() - (flightforge_time + wall_time_offset);
 
-  double sim_time = clock_->now().seconds() - relative_wall_age * actual_rtf;
-
-  if (sim_time < 0) {
+  if (relative_wall_age < 0) {
     return rclcpp::Time(0, 0, clock_->get_clock_type());
   }
 
-  const double secs     = floor(sim_time);
-  const double nanosecs = (sim_time - secs) * 1e9;
+  const double secs     = floor(relative_wall_age);
+  const double nanosecs = (relative_wall_age - secs) * 1e9;
 
   return rclcpp::Time(secs, nanosecs, clock_->get_clock_type());
 }

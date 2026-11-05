@@ -1,0 +1,103 @@
+uav_names: [
+  "uav1",
+]
+
+frames:
+  fcu:
+    publish_tf: false
+
+uav1:
+
+  frame: "x500"
+  type: "x500"
+  spawn:
+    x: 0.0
+    y: 50.0
+    z: 0.0
+    heading: 0.0
+
+ground:
+  enabled: false
+  z: 0.0 # [m]
+
+individual_takeoff_platform:
+  enabled: true
+
+mrs_uav_flightforge_simulator:
+
+  collisions:
+    enabled: false
+    crash: false
+
+  sensors:
+
+    lidar:
+
+      beam_length: 50.0 # [m]
+
+      enabled: true
+      horizontal_rays: 128 # [-]
+      vertical_rays: 128 # [-]
+
+      lidar_segmented:
+        enabled: false
+        rate: 10.0 # [Hz]
+
+      lidar_intensity:
+        enabled: false
+        rate: 10.0 # [Hz]
+
+    rgb:
+
+      enabled: true
+
+      enable_hdr: true
+      enable_temporal_aa: false
+      enable_raytracing: true
+
+      enable_motion_blur: true
+      motion_blur_amount: 0.5 # [0.0 - 1.0]
+      motion_blur_distortion: 50 # [0-100]
+
+      width: 800 # [px]
+      height: 600 # [px]
+      fov: 80.0 # [deg]
+
+      rgb_segmented:
+        enabled: false
+        rate: 10.0 # [Hz]
+
+      offset:
+        x: 0.3 # [m]
+        y: 0.0 # [m]
+        z: 0.0 # [m]
+
+      rotation:
+        pitch: 25.0 # [deg]
+
+      depth:
+        enabled: false
+
+    stereo:
+      enabled: false
+      rate: 10.0
+
+  graphics_settings: "low"
+
+  realtime_factor: 1.0 # [-]
+
+  # world_name: "valley" # works in Lite
+  # world_name: "warehouse" # works in Lite
+
+  # TODO
+  # world_name: "cave" # does not work
+  # world_name: "dead_spruce_forest" # does not work
+  # world_name: "infinite_forest" # does not work
+  world_name: "temesvar" # does not work
+
+  # weather_type: "cloudy"
+
+  daytime:
+
+    hour: 15
+    minute: 30

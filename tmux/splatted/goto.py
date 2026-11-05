@@ -20,10 +20,10 @@ class Goto(Node):
             self.get_logger().info('service not available, waiting again...')
 
         request = ReferenceStampedSrv.Request()
-        request.header.frame_id = "fcu_untilted"
-        request.reference.position.x = 10.0
-        request.reference.position.y = 10.0
-        request.reference.position.z = 0.0
+        request.header.frame_id = "world_origin"
+        request.reference.position.x = -65.91
+        request.reference.position.y = 36.12
+        request.reference.position.z = 10.31
         request.reference.heading = 1.57
 
         self.future = self.client.call_async(request)

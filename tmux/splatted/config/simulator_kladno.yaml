@@ -12,7 +12,7 @@ uav1:
   type: "x500"
   spawn:
     x: 0.0
-    y: 0.0
+    y: 50.0
     z: 0.0
     heading: 0.0
 
@@ -93,7 +93,7 @@ mrs_uav_flightforge_simulator:
   # world_name: "cave" # does not work
   # world_name: "dead_spruce_forest" # does not work
   # world_name: "infinite_forest" # does not work
-  world_name: "forest" # does not work
+  world_name: "temesvar" # does not work
 
   # weather_type: "cloudy"
 
