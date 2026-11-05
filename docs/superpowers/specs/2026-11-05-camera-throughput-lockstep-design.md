@@ -112,7 +112,7 @@ driven by the same scheduler so the two modes share one code path for fetching.
 
 ### As built
 
-Three things differ from the design above:
+These things differ from the design above:
 
 - Lockstep cameras run in `CAPTURE_ON_DEMAND`, not on `capture_rate_`: each due fetch renders that
   step's frame. The plugin's due times and the node's could drift a tick apart, which would drop
@@ -120,6 +120,16 @@ Three things differ from the design above:
   available to connector clients but the node does not send it.
 - Sensor sockets use a 10 s receive timeout in lockstep, since a frame takes as long as the GPU
   needs; the connector's default 1 s turned a slow frame into a failed fetch.
+- The node calls `Step` every N physics steps, not every one: N follows the fastest sensor with a
+  30 Hz floor, and UE's fixed timestep is N physics steps. Each `Step` costs about three engine
+  frames, so stepping every physics step ran a sensorless setup at RTF 0.19.
+- The drone server is one thread looping over its clients, so per-sensor sockets give parallel
+  decoding and conversion in the node but sensors on one drone are still served one at a time. The
+  "run their requests in parallel" line in Part C holds only for replies that need no render.
+- Between `Step`s the clock runs up to 4x faster than `realtime_factor`, gated on a wall deadline,
+  so a `Step`'s wall time is not paid twice.
+- `clock_rate` must be a whole multiple of `simulation_rate` in lockstep; anything else is fatal at
+  startup, because UE steps exactly the physics dt.
 - Free-running sensors are dispatched by the same scheduler, and a camera frame whose converted
   stamp does not move forward is dropped.
 

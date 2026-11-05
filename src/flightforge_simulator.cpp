@@ -86,7 +86,6 @@ class FlightforgeSimulator : public rclcpp::Node {
 
 public:
   FlightforgeSimulator(rclcpp::NodeOptions options);
-  ~FlightforgeSimulator();
 
 private:
   rclcpp::CallbackGroup::SharedPtr cbgrp_main_;
@@ -147,7 +146,6 @@ private:
   std::vector<std::vector<LidarSensor>>       lidars_;
   std::vector<std::vector<RangefinderSensor>> rangefinders_;
 
-  // one worker thread per sensor instance; the scheduler kicks the ones that are due
   struct SensorWorker
   {
     std::function<void()>   job;
@@ -165,11 +163,18 @@ private:
 
   FetchBarrier fetches_;
 
-  // in lockstep the node owns time: one Step per physics step, every fetch done before the next
   bool         lockstep_ = false;
   rclcpp::Time step_stamp_;
   int          lockstep_stride_      = 1;
   int          steps_since_lockstep_ = 0;
+
+  double       next_tick_wall_ = 0;
+  double       main_timer_rtf_ = 0;
+
+  std::atomic<bool> shutting_down_{false};
+
+  void   onShutdown(void);
+  double mainTimerPeriod(double rtf) const;
 
   void         stepSimulator(const rclcpp::Time& sim_time);
   rclcpp::Time sensorStamp(double capture_stamp);
@@ -289,34 +294,6 @@ private:
 FlightforgeSimulator::FlightforgeSimulator(rclcpp::NodeOptions options) : Node("mrs_uav_flightforge_simulator", options) {
 
   timer_init_ = this->create_wall_timer(std::chrono::duration<double>(0.1s), std::bind(&FlightforgeSimulator::timerInit, this));
-}
-
-FlightforgeSimulator::~FlightforgeSimulator() {
-
-  for (auto& w : workers_) {
-    {
-      std::scoped_lock lock(w->mutex);
-      w->stop = true;
-    }
-    w->cv.notify_one();
-  }
-
-  for (auto& w : workers_) {
-    if (w->thread.joinable()) {
-      w->thread.join();
-    }
-  }
-
-  if (lockstep_ && ueds_game_controller_) {
-
-    std::scoped_lock lock(mutex_flightforge_);
-
-    double applied;
-
-    ueds_game_controller_->SetLockstep(false);
-    ueds_game_controller_->SetFixedTimestep(0.0, 0.0, applied);
-    ueds_game_controller_->SetCameraCaptureMode(ueds_connector::CAPTURE_ALL_FRAMES);
-  }
 }
 
 //}
@@ -510,6 +487,12 @@ void FlightforgeSimulator::timerInit() {
 
   lockstep_ = time_model == "lockstep";
 
+  if (lockstep_ && !lockstepClockValid(_clock_rate_, _simulation_rate_)) {
+    RCLCPP_ERROR(node_->get_logger(), "lockstep needs clock_rate (%.1f Hz) to be a whole multiple of simulation_rate (%.1f Hz)", _clock_rate_, _simulation_rate_);
+    rclcpp::shutdown();
+    exit(1);
+  }
+
   param_loader.loadParam(yaml_prefix + "weather_type", weather_type_);
   param_loader.loadParam(yaml_prefix + "graphics_settings", flightforge_graphics_settings_enum_);
   param_loader.loadParam(yaml_prefix + "uavs_mutual_visibility", uavs_mutual_visibility_);
@@ -621,9 +604,15 @@ void FlightforgeSimulator::timerInit() {
   {
     double applied;
 
-    // a node that died in lockstep leaves the world paused
-    if (!ueds_game_controller_->SetLockstep(false) || !ueds_game_controller_->SetFixedTimestep(0.0, 0.0, applied) ||
-        !ueds_game_controller_->SetCameraCaptureMode(lockstep_ ? ueds_connector::CAPTURE_ON_DEMAND : ueds_connector::CAPTURE_ALL_FRAMES)) {
+    // a node that died in lockstep leaves the world paused, and a loading level does not answer yet
+    bool reset = false;
+
+    for (int attempt = 0; attempt < 30 && !reset && rclcpp::ok(); attempt++) {
+      reset = ueds_game_controller_->SetLockstep(false) && ueds_game_controller_->SetFixedTimestep(0.0, 0.0, applied) &&
+              ueds_game_controller_->SetCameraCaptureMode(lockstep_ ? ueds_connector::CAPTURE_ON_DEMAND : ueds_connector::CAPTURE_ALL_FRAMES);
+    }
+
+    if (!reset) {
       RCLCPP_ERROR(node_->get_logger(), "could not reset the FlightForge time model");
       rclcpp::shutdown();
       exit(1);
@@ -772,7 +761,7 @@ void FlightforgeSimulator::timerInit() {
   opts.node      = node_;
   opts.autostart = true;
 
-  timer_main_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / (_clock_rate_ * drs_params_.realtime_factor)),
+  timer_main_ = node_->create_wall_timer(std::chrono::duration<double>(mainTimerPeriod(drs_params_.realtime_factor)),
                                          std::bind(&FlightforgeSimulator::timerMain, this), cbgrp_main_);
 
   timer_status_ = node_->create_wall_timer(std::chrono::duration<double>(1.0), std::bind(&FlightforgeSimulator::timerStatus, this), cbgrp_status_);
@@ -810,6 +799,8 @@ void FlightforgeSimulator::timerInit() {
     RCLCPP_INFO(node_->get_logger(), "lockstep at %.1f Hz", _simulation_rate_ / lockstep_stride_);
   }
 
+  node_->get_node_base_interface()->get_context()->add_pre_shutdown_callback([this]() { onShutdown(); });
+
   // | ----------------------- finish init ---------------------- |
 
   is_initialized_ = true;
@@ -829,7 +820,22 @@ void FlightforgeSimulator::timerMain() {
     return;
   }
 
+  if (shutting_down_) {
+    return;
+  }
+
   RCLCPP_INFO_ONCE(node_->get_logger(), "Main timer spinning");
+
+  if (lockstep_) {
+
+    const double wall = wall_clock_->now().seconds();
+
+    if (wall < next_tick_wall_) {
+      return;
+    }
+
+    next_tick_wall_ = std::max(next_tick_wall_ + 1.0 / (_clock_rate_ * mrs_lib::get_mutexed(mutex_drs_params_, drs_params_).realtime_factor), wall - 0.1);
+  }
 
   // | ------------------ make simulation step ------------------ |
 
@@ -873,7 +879,8 @@ void FlightforgeSimulator::timerMain() {
   {
     const double dt_since_last_step = (sim_time - last_step_time_).seconds();
 
-    if (dt_since_last_step >= simulation_step_size) {
+    // ticks are whole nanoseconds, so three 300 Hz ticks fall a hair short of 10 ms
+    if (dt_since_last_step >= simulation_step_size - 0.5 * clock_step_size) {
 
       for (size_t i = 0; i < uavs_.size(); i++) {
 
@@ -943,9 +950,15 @@ void FlightforgeSimulator::timerStatus() {
   const double desired_rtf =
       (!lockstep_ && drs_params.dynamic_rtf && flightforge_rtf < drs_params.realtime_factor) ? flightforge_rtf : drs_params.realtime_factor;
 
-  timer_main_->cancel();
-  timer_main_ = node_->create_wall_timer(std::chrono::duration<double>(1.0 / (_clock_rate_ * desired_rtf)), std::bind(&FlightforgeSimulator::timerMain, this),
-                                         cbgrp_main_);
+  // the GetFps above can block for a whole Step, long enough to miss a pause
+  if (desired_rtf != main_timer_rtf_ && !mrs_lib::get_mutexed(mutex_drs_params_, drs_params_).paused) {
+
+    main_timer_rtf_ = desired_rtf;
+
+    timer_main_->cancel();
+    timer_main_ = node_->create_wall_timer(std::chrono::duration<double>(mainTimerPeriod(desired_rtf)), std::bind(&FlightforgeSimulator::timerMain, this),
+                                           cbgrp_main_);
+  }
 
   // the sim's own clock drives Livox point counts and motion, so it must run at the ROS rate
   if (!lockstep_ && std::abs(desired_rtf - flightforge_time_dilation_) > 0.01 * desired_rtf) {
@@ -1092,7 +1105,7 @@ void FlightforgeSimulator::callbackRealtimeFactor(const double& param_value) {
   timer_main_->cancel();
 
   timer_main_ =
-      create_wall_timer(std::chrono::duration<double>(1.0 / (_clock_rate_ * param_value)), std::bind(&FlightforgeSimulator::timerMain, this), cbgrp_main_);
+      create_wall_timer(std::chrono::duration<double>(mainTimerPeriod(param_value)), std::bind(&FlightforgeSimulator::timerMain, this), cbgrp_main_);
 
   RCLCPP_INFO(get_logger(), "desired realtime factor updated to %.3f", param_value);
 }
@@ -1114,7 +1127,7 @@ void FlightforgeSimulator::callbackPause(const bool& param_value) {
 
   } else {
 
-    timer_main_ = create_wall_timer(std::chrono::duration<double>(1.0 / (_clock_rate_ * drs_params_.realtime_factor)),
+    timer_main_ = create_wall_timer(std::chrono::duration<double>(mainTimerPeriod(drs_params_.realtime_factor)),
                                     std::bind(&FlightforgeSimulator::timerMain, this), cbgrp_main_);
 
     timer_status_ = create_wall_timer(std::chrono::duration<double>(1.0), std::bind(&FlightforgeSimulator::timerStatus, this), cbgrp_status_);
@@ -1217,37 +1230,6 @@ void FlightforgeSimulator::checkForCrash(void) {
     for (size_t i = 0; i < uavs_.size(); i++) {
 
       auto [res, crashed] = ueds_connectors_[i]->GetCrashState();
-
-      /* if the uav has crashed check the rangefinder data to determine if its not just a landing */
-      if (crashed) {
-        bool   res_range;
-        double range;
-        {
-          std::scoped_lock lock(mutex_flightforge_);
-
-          std::tie(res_range, range) = ueds_connectors_[i]->GetRangefinderData();
-        }
-
-        /* if (res_range && range < 0.1) { */
-        /*   crashed = false; */
-        /*   if (set_ground_z_clients_[i].exists()) { */
-        /*     mrs_msgs::Float64Srv srv; */
-        /*     // set the ground_z to the current position */
-        /*     srv.request.value = uavs_[i]->getState().x.z(); */
-        /*     if (set_ground_z_clients_[i].call(srv)) { */
-        /*       if (srv.response.success) { */
-        /*         RCLCPP_INFO(node_->get_logger(), "Successfully set ground_z for uav%lu to ", i + 1 ); */
-        /*       } else { */
-        /*         RCLCPP_ERROR(node_->get_logger(), "Failed to set ground_z for uav%lu: %s", i + 1, srv.response.message.c_str()); */
-        /*       } */
-        /*     } else { */
-        /*       RCLCPP_ERROR(node_->get_logger(), "Failed to call set_ground_z service for uav%lu", i + 1); */
-        /*     } */
-        /*   } else { */
-        /*     RCLCPP_WARN(node_->get_logger(), "Set_ground_z service for uav%lu does not exist", i + 1); */
-        /*   } */
-        /* } */
-      }
 
       if (!res) {
         RCLCPP_ERROR_THROTTLE(node_->get_logger(), *clock_, 1000, "Failed to obtain crash state for uav%lu", i + 1);
@@ -1730,6 +1712,49 @@ void FlightforgeSimulator::dispatchDueSensors(double sim_time) {
 
 //}
 
+/* onShutdown() //{ */
+
+void FlightforgeSimulator::onShutdown(void) {
+
+  shutting_down_ = true;
+
+  for (auto& w : workers_) {
+    {
+      std::scoped_lock lock(w->mutex);
+      w->stop = true;
+    }
+    w->cv.notify_one();
+  }
+
+  for (auto& w : workers_) {
+    if (w->thread.joinable()) {
+      w->thread.join();
+    }
+  }
+
+  if (lockstep_) {
+
+    std::scoped_lock lock(mutex_flightforge_);
+
+    double applied;
+
+    ueds_game_controller_->SetLockstep(false);
+    ueds_game_controller_->SetFixedTimestep(0.0, 0.0, applied);
+    ueds_game_controller_->SetCameraCaptureMode(ueds_connector::CAPTURE_ALL_FRAMES);
+  }
+}
+
+//}
+
+/* mainTimerPeriod() //{ */
+
+// lockstep polls faster and paces itself on next_tick_wall_, as a Step already spends the wall time
+double FlightforgeSimulator::mainTimerPeriod(double rtf) const {
+  return 1.0 / (_clock_rate_ * rtf * (lockstep_ ? 4.0 : 1.0));
+}
+
+//}
+
 /* stepSimulator() //{ */
 
 void FlightforgeSimulator::stepSimulator(const rclcpp::Time& sim_time) {
@@ -1761,8 +1786,9 @@ void FlightforgeSimulator::stepSimulator(const rclcpp::Time& sim_time) {
 
   dispatchDueSensors(sim_time.seconds());
 
-  if (!fetches_.wait(10.0)) {
-    RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "sensor fetches did not return within 10 s of a lockstep step");
+  // longer than the sensor sockets' timeout, so no fetch outlives its step
+  if (!fetches_.wait(15.0)) {
+    RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "sensor fetches did not return within 15 s of a lockstep step");
   }
 }
 
@@ -1815,6 +1841,9 @@ void FlightforgeSimulator::fetchCamera(size_t uav, size_t i) {
   }
 
   if (stamp <= s.last_stamp) {
+    if (lockstep_) {
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s returned no new frame", uav_names[uav].c_str(), s.name.c_str());
+    }
     return;
   }
 
@@ -1889,6 +1918,9 @@ void FlightforgeSimulator::fetchFisheye(size_t uav, size_t i) {
   }
 
   if (stamp <= s.last_stamp) {
+    if (lockstep_) {
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s returned no new frame", uav_names[uav].c_str(), s.name.c_str());
+    }
     return;
   }
 
@@ -1943,6 +1975,9 @@ void FlightforgeSimulator::fetchStereo(size_t uav, size_t i) {
   }
 
   if (stamp <= s.last_stamp) {
+    if (lockstep_) {
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s returned no new frame", uav_names[uav].c_str(), s.name.c_str());
+    }
     return;
   }
 

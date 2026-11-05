@@ -15,11 +15,14 @@ struct ScheduledSensor
   bool   busy;
 };
 
-// indices due at sim_time; a due time more than a period behind snaps forward, a busy sensor loses its slot
+// a stall gives one dispatch and a busy sensor loses its slot
 std::vector<size_t> dueSensors(double sim_time, std::vector<ScheduledSensor>& sensors);
 
-// physics steps per lockstep Step: as few Steps as the fastest sensor allows, but never under 30 Hz so the view stays smooth
+// physics steps per Step, with a 30 Hz floor for the view
 int lockstepStride(double simulation_rate, double highest_sensor_rate);
+
+// UE steps exactly the physics dt, so a physics step must be a whole number of clock ticks
+bool lockstepClockValid(double clock_rate, double simulation_rate);
 
 // counts fetches in flight, so a lockstep step can wait for every frame it produced
 class FetchBarrier {

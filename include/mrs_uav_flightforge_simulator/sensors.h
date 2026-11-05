@@ -37,7 +37,7 @@ struct CameraSensor
   mrs_lib::PublisherHandler<mrs_uav_flightforge_simulator::msg::InstanceMap> ph_map;
   bool                                                                      map_published = false;
   sensor_msgs::msg::CameraInfo                                              info;
-  std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
+  std::shared_ptr<ueds_connector::UedsConnector> connector;
   double                                                                    last_stamp = 0.0;
   rclcpp::Time                                                              last_published_stamp{0, 0, RCL_ROS_TIME};
 };
@@ -51,7 +51,7 @@ struct FisheyeSensor
   image_transport::Publisher                              ph_image;
   mrs_lib::PublisherHandler<sensor_msgs::msg::CameraInfo> ph_info;
   sensor_msgs::msg::CameraInfo                            info;
-  std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
+  std::shared_ptr<ueds_connector::UedsConnector> connector;
   double                                                  last_stamp = 0.0;
   rclcpp::Time                                            last_published_stamp{0, 0, RCL_ROS_TIME};
 };
@@ -65,7 +65,7 @@ struct StereoSensor
   image_transport::Publisher                              ph_image_left, ph_image_right;
   mrs_lib::PublisherHandler<sensor_msgs::msg::CameraInfo> ph_info_left, ph_info_right;
   sensor_msgs::msg::CameraInfo                            info_left, info_right;
-  std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
+  std::shared_ptr<ueds_connector::UedsConnector> connector;
   double                                                  last_stamp = 0.0;
   rclcpp::Time                                            last_published_stamp{0, 0, RCL_ROS_TIME};
 };
@@ -77,7 +77,7 @@ struct EventSensor
   std::string                                                    name;
   std::string                                                    frame;
   mrs_lib::PublisherHandler<event_camera_msgs::msg::EventPacket> ph_events;
-  std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
+  std::shared_ptr<ueds_connector::UedsConnector> connector;
   double                                                         last_stamp = 0.0;
 };
 
@@ -88,10 +88,10 @@ struct LidarSensor
   std::string                                              name;
   std::string                                              frame;
   mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2> ph_points, ph_free;
-  std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
+  std::shared_ptr<ueds_connector::UedsConnector> connector;
   double                                                   last_stamp = 0.0;
   rclcpp::Time                                             last_published_stamp{0, 0, RCL_ROS_TIME};
-  std::mt19937                                             rng{std::random_device{}()};  // each timer has its own thread
+  std::mt19937                                             rng{std::random_device{}()};  // each worker has its own thread
 };
 
 struct RangefinderSensor
@@ -101,7 +101,7 @@ struct RangefinderSensor
   std::string                                        name;
   std::string                                        frame;
   mrs_lib::PublisherHandler<sensor_msgs::msg::Range> ph_range;
-  std::shared_ptr<ueds_connector::UedsConnector> connector;  // its own socket, so sensors never wait for each other
+  std::shared_ptr<ueds_connector::UedsConnector> connector;
 };
 
 //}
