@@ -10,7 +10,7 @@ mrs_uav_flightforge_simulator:
   simulator_port: 8551
 
   # "lockstep" makes sensor rates exact in sim time, "free_running" stays closer to real time
-  time_model: "lockstep"
+  time_model: "free_running"
 
   # the rate of publishing of /clock
   clock_rate:      400.0 # Hz, should be >= simulation_rate, ideally in whole multiples of simulation_rate
