@@ -112,3 +112,26 @@ mrs_uav_flightforge_simulator:
         rate: 10.0
         offset: {x: 0.0, y: 0.0, z: -0.1}
         rotation: {roll: 0.0, pitch: 90.0, yaw: 0.0}
+
+  devices:
+    n_devices: 3
+    default:
+      type: ""
+      camera_rate: 30.0
+      lidar_rate: 0.0
+      show_mesh: true
+      offset: {x: 0.0, y: 0.0, z: 0.1}
+      rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0}
+      intensity: false
+      labels: false
+      publish_free: false
+      noise: {enabled: true, std_at_1m: 0.01, std_slope: 0.2}
+    device_0:
+      type: "livox_mid360"
+    device_1:
+      type: "realsense_d435i"
+      camera_rate: 15.0
+      offset: {x: 0.14}
+    device_2:
+      type: "livox_mid360"
+      lidar_rate: 20.0

@@ -145,6 +145,103 @@ ueds_connector::Rotation toUeRotation(const Mount& m) {
   return ueds_connector::Rotation(-m.pitch, -m.yaw, m.roll);
 }
 
+Mount fromUe(const ueds_connector::Coordinates& offset, const ueds_connector::Rotation& rotation) {
+  return Mount{offset.x / 100.0, -offset.y / 100.0, offset.z / 100.0, rotation.roll, -rotation.pitch, -rotation.yaw};
+}
+
+//}
+
+/* device sensors, as the simulator built them //{ */
+
+CameraParams toCameraParams(const ueds_connector::RgbCameraConfig& cfg, double rate) {
+
+  CameraParams p{};
+
+  p.rate                   = rate;
+  p.width                  = cfg.width_;
+  p.height                 = cfg.height_;
+  p.fov                    = cfg.fov_;
+  p.mount                  = fromUe(cfg.offset_, cfg.orientation_);
+  p.enable_hdr             = cfg.enable_hdr_;
+  p.enable_temporal_aa     = cfg.enable_temporal_aa_;
+  p.enable_raytracing      = cfg.enable_raytracing_;
+  p.enable_motion_blur     = cfg.enable_motion_blur_;
+  p.motion_blur_amount     = cfg.motion_blur_amount_;
+  p.motion_blur_distortion = cfg.motion_blur_distortion_;
+
+  return p;
+}
+
+FisheyeParams toFisheyeParams(const ueds_connector::FisheyeCameraConfig& cfg, double rate) {
+
+  FisheyeParams p{};
+
+  p.rate       = rate;
+  p.width      = cfg.width_;
+  p.height     = cfg.height_;
+  p.fov        = cfg.fov_;
+  p.lens_model = cfg.lens_model_;
+  p.full_frame = cfg.full_frame_;
+  p.mount      = fromUe(cfg.offset_, cfg.orientation_);
+
+  return p;
+}
+
+Mount leftEyeMount(const Serializable::Drone::StereoCameraConfig& cfg) {
+  return fromUe(ueds_connector::Coordinates(cfg.offset_x_left_, cfg.offset_y_left_, cfg.offset_z_left_),
+                ueds_connector::Rotation(cfg.rotation_pitch_left_, cfg.rotation_yaw_left_, cfg.rotation_roll_left_));
+}
+
+Mount rightEyeMount(const Serializable::Drone::StereoCameraConfig& cfg) {
+  return fromUe(ueds_connector::Coordinates(cfg.offset_x_right_, cfg.offset_y_right_, cfg.offset_z_right_),
+                ueds_connector::Rotation(cfg.rotation_pitch_right_, cfg.rotation_yaw_right_, cfg.rotation_roll_right_));
+}
+
+StereoParams toStereoParams(const Serializable::Drone::StereoCameraConfig& cfg, double rate) {
+
+  const Mount left = leftEyeMount(cfg), right = rightEyeMount(cfg);
+
+  StereoParams p{};
+
+  p.rate               = rate;
+  p.width              = cfg.width_;
+  p.height             = cfg.height_;
+  p.fov                = cfg.fov_;
+  p.baseline           = std::hypot(left.x - right.x, left.y - right.y, left.z - right.z);
+  p.mount              = left;
+  p.mount.x            = (left.x + right.x) / 2.0;
+  p.mount.y            = (left.y + right.y) / 2.0;
+  p.mount.z            = (left.z + right.z) / 2.0;
+  p.enable_hdr         = cfg.enable_hdr_;
+  p.enable_temporal_aa = cfg.enable_temporal_aa_;
+  p.enable_raytracing  = cfg.enable_raytracing_;
+
+  return p;
+}
+
+LidarParams toLidarParams(const ueds_connector::LidarConfig& cfg, const DeviceParams& device) {
+
+  LidarParams p{};
+
+  p.rate                 = device.lidar_rate > 0 ? device.lidar_rate : cfg.Frequency;
+  p.livox                = cfg.Livox;
+  p.livox_sensor         = cfg.LivoxSensor;
+  p.intensity            = device.intensity;
+  p.labels               = device.labels;
+  p.publish_free         = device.publish_free;
+  p.horizontal_rays      = int(cfg.BeamHorRays);
+  p.vertical_rays        = int(cfg.BeamVertRays);
+  p.horizontal_fov_left  = cfg.FOVHorLeft;
+  p.horizontal_fov_right = cfg.FOVHorRight;
+  p.vertical_fov_up      = cfg.FOVVertUp;
+  p.vertical_fov_down    = cfg.FOVVertDown;
+  p.beam_length          = cfg.beamLength / 100.0;
+  p.mount                = fromUe(cfg.offset, cfg.orientation);
+  p.noise                = device.noise;
+
+  return p;
+}
+
 //}
 
 /* lidar //{ */

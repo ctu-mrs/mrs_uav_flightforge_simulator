@@ -117,6 +117,49 @@ TEST(SensorConfig, MisspeltNestedKeyIsRejected) {
   EXPECT_NE(validateSensorKeys({custom, fixture("sensors_valid.yaml")}, kRoot).find("rgb/sensor_0/rotation/pich"), std::string::npos);
 }
 
+TEST(Devices, OverridesFallBackPerKey) {
+  const auto cfg = load(fixture("sensors_valid.yaml"));
+  ASSERT_EQ(cfg.devices.size(), 3u);
+  EXPECT_EQ(cfg.devices[1].type, "realsense_d435i");
+  EXPECT_DOUBLE_EQ(cfg.devices[0].camera_rate, 30.0);
+  EXPECT_DOUBLE_EQ(cfg.devices[1].camera_rate, 15.0);
+  EXPECT_DOUBLE_EQ(cfg.devices[1].mount.x, 0.14);
+  EXPECT_DOUBLE_EQ(cfg.devices[1].mount.z, 0.1);
+  EXPECT_TRUE(cfg.devices[0].show_mesh);
+}
+
+TEST(Devices, NamesCountPerType) {
+  const auto cfg = load(fixture("sensors_valid.yaml"));
+  EXPECT_EQ(deviceNames(cfg.devices), (std::vector<std::string>{"livox_mid360_0", "realsense_d435i_0", "livox_mid360_1"}));
+}
+
+TEST(Devices, MissingTypeIsFatal) {
+  const auto path = writeTemp("test_devices_no_type.yaml", "mrs_uav_flightforge_simulator:\n  devices:\n    n_devices: 4\n");
+  auto       node = std::make_shared<rclcpp::Node>("test_devices_no_type");
+
+  mrs_lib::ParamLoader loader(node, node->get_name());
+  loader.addYamlFile(path);
+  loader.addYamlFile(fixture("sensors_valid.yaml"));
+
+  try {
+    loadSensors(loader, kRoot + "/");
+    FAIL();
+  }
+  catch (const std::runtime_error& e) {
+    EXPECT_NE(std::string(e.what()).find("device_3/type"), std::string::npos) << e.what();
+  }
+}
+
+TEST(Devices, BlockBeyondCountIsRejected) {
+  const auto custom = writeTemp("test_devices_count.yaml", "mrs_uav_flightforge_simulator:\n  devices:\n    n_devices: 1\n    device_1:\n      type: \"odin1\"\n");
+  EXPECT_NE(validateSensorKeys({custom, fixture("sensors_valid.yaml")}, kRoot).find("devices/device_1"), std::string::npos);
+}
+
+TEST(Devices, MisspeltKeyIsRejected) {
+  const auto custom = writeTemp("test_devices_typo.yaml", "mrs_uav_flightforge_simulator:\n  devices:\n    device_0:\n      camera_rat: 5.0\n");
+  EXPECT_NE(validateSensorKeys({custom, fixture("sensors_valid.yaml")}, kRoot).find("device_0/camera_rat"), std::string::npos);
+}
+
 TEST(SensorConfig, ShippedConfigsPass) {
   const std::string package = std::string(TEST_FIXTURES) + "/../..";
   EXPECT_EQ(validateSensorKeys({package + "/tmux/one_drone/config/simulator.yaml", package + "/config/flightforge_simulator.yaml"}, kRoot), "");
