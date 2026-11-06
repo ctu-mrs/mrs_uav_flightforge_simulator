@@ -121,6 +121,24 @@ objects:
 
 `asset` is a bare name, a `/Game` or `/FlightForgePlugin` object path, or the path of a `.glb`. A file can set `search_paths` for bare names and `model_paths` for glTF directories. Objects placed earlier are removed first, so restarting the node does not double them.
 
+### Object libraries
+
+`libraries` lists object libraries to load on the simulator's machine, each a directory of `.glb` files or a manifest:
+
+```yaml
+name: clgp
+objects:
+  - id: trash_can/001055c2
+    asset: objaverse/glbs/001055c2.glb # relative to this file, or a /Game path
+    class: trash_can
+    scale: 0.6 # what brings the model to real size
+    height: 0.6 # [m]
+    base_z: 0.5 # [m] at scale 1, how far the model's origin sits above its lowest point
+    thumbnail: thumbs/trash_can/001055c2.png
+```
+
+A scene names an object as `lib:<library>/<id>`. It arrives at the library's scale unless the entry sets `scale`, and its `position` is the base of the object, so `z: 0` stands it on the floor.
+
 ## Citing this work
 
 If you use this simulator in your research, please cite the following paper:
