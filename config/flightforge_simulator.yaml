@@ -52,6 +52,9 @@ mrs_uav_flightforge_simulator:
   # unless the file sets its own frame. Relative paths start from the launch directory.
   scene_files: []
 
+  # Object libraries for scene files to name as lib:<library>/<id>, each a manifest or a directory of .glb files.
+  libraries: []
+
   #  {"sunny", 0},
   #  {"cloudy", 1},
   #  {"foggy", 2},

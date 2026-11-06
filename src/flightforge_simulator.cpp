@@ -321,7 +321,8 @@ static const std::vector<std::string> kGameModeOps = {"get_api_version",  "get_t
                                                       "set_forest_density", "set_forest_hilly_level", "set_mutual_visibility",
                                                       "set_time_dilation",  "set_fixed_timestep",     "set_lockstep",
                                                       "step",               "set_camera_capture_mode",
-                                                      "spawn_objects_from_yaml", "remove_spawned_object"};
+                                                      "spawn_objects_from_yaml", "remove_spawned_object",
+                                                      "load_library"};
 
 static const std::vector<std::string> kDroneOps = {"set_location_and_rotation_async", "get_crash_state",           "add_sensor",
                                                    "get_camera_info",                 "set_rgb_camera_config",     "set_stereo_camera_config",
@@ -519,8 +520,9 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "daytime/minute", daytime_minute_);
   param_loader.loadParam(yaml_prefix + "world_name", flightforge_world_level_name_enum_);
 
-  std::vector<std::string> scene_files;
+  std::vector<std::string> scene_files, libraries;
   param_loader.loadParam(yaml_prefix + "scene_files", scene_files);
+  param_loader.loadParam(yaml_prefix + "libraries", libraries);
 
   if (!param_loader.loadedSuccessfully() || !dynparam_mgr_->loaded_successfully()) {
     RCLCPP_ERROR(node_->get_logger(), "could not load all parameters!");
@@ -691,6 +693,21 @@ void FlightforgeSimulator::timerInit() {
   /* } */
 
   /* std::this_thread::sleep_for(std::chrono::seconds(1)); */
+
+  for (const auto& library : libraries) {
+
+    std::string error;
+
+    const auto [loaded, count] = ueds_game_controller_->LoadLibrary(library, error);
+
+    if (!loaded) {
+      RCLCPP_ERROR(node_->get_logger(), "could not load library %s: %s", library.c_str(), error.c_str());
+      rclcpp::shutdown();
+      exit(1);
+    }
+
+    RCLCPP_INFO(node_->get_logger(), "loaded %d objects from %s", count, library.c_str());
+  }
 
   if (!scene_files.empty()) {
 
