@@ -160,6 +160,32 @@ TEST(Devices, MisspeltKeyIsRejected) {
   EXPECT_NE(validateSensorKeys({custom, fixture("sensors_valid.yaml")}, kRoot).find("device_0/camera_rat"), std::string::npos);
 }
 
+TEST(Scene, DefaultsToTheGroundFrame) {
+  const auto path = writeTemp("test_scene.yaml", "objects:\n  - asset: /Engine/BasicShapes/Cube\n    position: [1.0, 2.0, 0.0]\n");
+  const auto doc  = YAML::Load(loadScene(path));
+  EXPECT_EQ(doc["frame"].as<std::string>(), "ground");
+  EXPECT_EQ(doc["objects"].size(), 1u);
+}
+
+TEST(Scene, KeepsAnExplicitFrame) {
+  const auto path = writeTemp("test_scene_frame.yaml", "frame: world\nobjects: []\n");
+  EXPECT_EQ(YAML::Load(loadScene(path))["frame"].as<std::string>(), "world");
+}
+
+TEST(Scene, MissingFileNamesThePath) {
+  try {
+    loadScene("/nonexistent/scene.yaml");
+    FAIL();
+  }
+  catch (const std::runtime_error& e) {
+    EXPECT_NE(std::string(e.what()).find("/nonexistent/scene.yaml"), std::string::npos) << e.what();
+  }
+}
+
+TEST(Scene, NoObjectListIsRejected) {
+  EXPECT_THROW(loadScene(writeTemp("test_scene_empty.yaml", "foo: 1\n")), std::runtime_error);
+}
+
 TEST(SensorConfig, ShippedConfigsPass) {
   const std::string package = std::string(TEST_FIXTURES) + "/../..";
   EXPECT_EQ(validateSensorKeys({package + "/tmux/one_drone/config/simulator.yaml", package + "/config/flightforge_simulator.yaml"}, kRoot), "");

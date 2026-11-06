@@ -107,6 +107,20 @@ Topics are `/<uav>/<type>_<k>/<role>/...`, for example `/uav1/livox_mid360_0/lid
 
 Lidars keep the device's rate unless `lidar_rate` is set, and cameras run at `camera_rate`. The other keys are in the `devices` block of `config/flightforge_simulator.yaml`. The Odin1 camera renders six faces at full resolution, so it is the most expensive one to run; lower its `camera_rate` if the simulator slows down.
 
+## Scenes
+
+`scene_files` lists YAML files of objects to place when the simulator starts, in the same frame as the UAVs: metres and degrees, right-handed, z = 0 on the floor. The simulator's `export_scene` writes this format.
+
+```yaml
+objects:
+  - asset: /Engine/BasicShapes/Cube
+    position: [5.0, 0.0, 0.5]
+    orientation: [0.0, 0.0, 45.0] # roll, pitch, yaw
+    scale: 0.5
+```
+
+`asset` is a bare name, a `/Game` or `/FlightForgePlugin` object path, or the path of a `.glb`. A file can set `search_paths` for bare names and `model_paths` for glTF directories. Objects placed earlier are removed first, so restarting the node does not double them.
+
 ## Citing this work
 
 If you use this simulator in your research, please cite the following paper:

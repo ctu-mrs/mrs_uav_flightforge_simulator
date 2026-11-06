@@ -116,6 +116,9 @@ std::vector<std::string> deviceNames(const std::vector<DeviceParams>& devices);
 // throws std::runtime_error naming the offending parameter path
 SensorsConfig loadSensors(mrs_lib::ParamLoader& loader, const std::string& prefix);
 
+// the document to send the simulator; throws std::runtime_error naming the file
+std::string loadScene(const std::string& path);
+
 // "" when valid, else a message naming the offending key path
 std::string validateSensorKeys(const std::vector<std::string>& yaml_files, const std::string& root_key);
 

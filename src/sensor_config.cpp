@@ -337,6 +337,33 @@ std::vector<std::string> deviceNames(const std::vector<DeviceParams>& devices) {
 
 //}
 
+/* loadScene() //{ */
+
+std::string loadScene(const std::string& path) {
+
+  YAML::Node scene;
+
+  try {
+    scene = YAML::LoadFile(path);
+  }
+  catch (const YAML::Exception& e) {
+    throw std::runtime_error("could not read scene " + path + ": " + e.what());
+  }
+
+  if (!scene.IsMap() || !scene["objects"] || !scene["objects"].IsSequence()) {
+    throw std::runtime_error("scene " + path + " has no list of objects");
+  }
+
+  // z = 0 means the floor here, as it does for a UAV's spawn
+  if (!scene["frame"]) {
+    scene["frame"] = "ground";
+  }
+
+  return YAML::Dump(scene);
+}
+
+//}
+
 /* validateSensorKeys() //{ */
 
 namespace

@@ -48,6 +48,10 @@ mrs_uav_flightforge_simulator:
   # 6 -  TEMESVAR (only in the full version)
   world_name: "valley"
 
+  # Object placements to load, as the simulator's scene editor exports them. z = 0 is the floor,
+  # unless the file sets its own frame. Relative paths start from the launch directory.
+  scene_files: []
+
   #  {"sunny", 0},
   #  {"cloudy", 1},
   #  {"foggy", 2},
