@@ -320,7 +320,8 @@ static const std::vector<std::string> kGameModeOps = {"get_api_version",  "get_t
                                                       "set_weather",      "set_daytime",        "set_graphics_settings",
                                                       "set_forest_density", "set_forest_hilly_level", "set_mutual_visibility",
                                                       "set_time_dilation",  "set_fixed_timestep",     "set_lockstep",
-                                                      "step",               "set_camera_capture_mode"};
+                                                      "step",               "set_camera_capture_mode",
+                                                      "spawn_objects_from_yaml", "remove_spawned_object"};
 
 static const std::vector<std::string> kDroneOps = {"set_location_and_rotation_async", "get_crash_state",           "add_sensor",
                                                    "get_camera_info",                 "set_rgb_camera_config",     "set_stereo_camera_config",
@@ -518,6 +519,9 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "daytime/minute", daytime_minute_);
   param_loader.loadParam(yaml_prefix + "world_name", flightforge_world_level_name_enum_);
 
+  std::vector<std::string> scene_files;
+  param_loader.loadParam(yaml_prefix + "scene_files", scene_files);
+
   if (!param_loader.loadedSuccessfully() || !dynparam_mgr_->loaded_successfully()) {
     RCLCPP_ERROR(node_->get_logger(), "could not load all parameters!");
     rclcpp::shutdown();
@@ -687,6 +691,42 @@ void FlightforgeSimulator::timerInit() {
   /* } */
 
   /* std::this_thread::sleep_for(std::chrono::seconds(1)); */
+
+  if (!scene_files.empty()) {
+
+    // objects outlive the node, a restart would double them
+    ueds_game_controller_->RemoveAllSpawnedObjects();
+
+    for (const auto& file : scene_files) {
+
+      std::string document;
+
+      try {
+        document = loadScene(file);
+      }
+      catch (const std::exception& e) {
+        RCLCPP_ERROR(node_->get_logger(), "%s", e.what());
+        rclcpp::shutdown();
+        exit(1);
+      }
+
+      std::string error;
+
+      const auto [placed, ids] = ueds_game_controller_->SpawnObjectsFromYaml(document, error);
+
+      if (!placed) {
+        RCLCPP_ERROR(node_->get_logger(), "could not place scene %s: %s", file.c_str(), error.c_str());
+        rclcpp::shutdown();
+        exit(1);
+      }
+
+      if (!error.empty()) {
+        RCLCPP_WARN(node_->get_logger(), "scene %s: %s", file.c_str(), error.c_str());
+      }
+
+      RCLCPP_INFO(node_->get_logger(), "placed %zu objects from %s", ids.size(), file.c_str());
+    }
+  }
 
   // | --------------------- Spawn the UAVs in FlightForge --------------------- |
 
