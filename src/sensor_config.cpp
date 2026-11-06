@@ -19,8 +19,8 @@ namespace
 class BlockLoader {
 
 public:
-  BlockLoader(mrs_lib::ParamLoader& loader, const std::string& type_path, int index)
-      : loader_(loader), default_path_(type_path + "default/"), sensor_path_(type_path + "sensor_" + std::to_string(index) + "/") {
+  BlockLoader(mrs_lib::ParamLoader& loader, const std::string& type_path, const std::string& instance, int index)
+      : loader_(loader), default_path_(type_path + "default/"), sensor_path_(type_path + instance + std::to_string(index) + "/") {
   }
 
   template <class T>
@@ -35,6 +35,17 @@ public:
     }
 
     loader_.loadParam(sensor_path_ + key, value, value);
+
+    return value;
+  }
+
+  double nonNegative(const std::string& key) {
+
+    const double value = get<double>(key);
+
+    if (value < 0) {
+      throw std::runtime_error(sensor_path_ + key + " must not be negative, got " + std::to_string(value));
+    }
 
     return value;
   }
@@ -64,6 +75,10 @@ public:
   Mount mount() {
     return Mount{get<double>("offset/x"), get<double>("offset/y"),     get<double>("offset/z"),
                  get<double>("rotation/roll"), get<double>("rotation/pitch"), get<double>("rotation/yaw")};
+  }
+
+  const std::string& path() const {
+    return sensor_path_;
   }
 
 private:
@@ -194,32 +209,63 @@ RangefinderParams loadRangefinder(BlockLoader& b) {
 
 //}
 
+/* loadDevice() //{ */
+
+DeviceParams loadDevice(BlockLoader& b) {
+
+  DeviceParams p;
+
+  p.type = b.get<std::string>("type");
+
+  if (p.type.empty()) {
+    throw std::runtime_error(b.path() + "type must name a device");
+  }
+
+  p.camera_rate     = b.positive("camera_rate");
+  p.lidar_rate      = b.nonNegative("lidar_rate");
+  p.show_mesh       = b.get<bool>("show_mesh");
+  p.mount           = b.mount();
+  p.intensity       = b.get<bool>("intensity");
+  p.labels          = b.get<bool>("labels");
+  p.publish_free    = b.get<bool>("publish_free");
+  p.noise.enabled   = b.get<bool>("noise/enabled");
+  p.noise.std_at_1m = b.get<double>("noise/std_at_1m");
+  p.noise.std_slope = b.get<double>("noise/std_slope");
+
+  return p;
+}
+
+//}
+
 /* loadType() //{ */
 
 template <class Params, class Fn>
-std::vector<Params> loadType(mrs_lib::ParamLoader& loader, const std::string& prefix, const std::string& type, Fn load_one) {
+std::vector<Params> loadInstances(mrs_lib::ParamLoader& loader, const std::string& path, const std::string& count_key, const std::string& instance, Fn load_one) {
 
-  const std::string type_path = prefix + "sensors/" + type + "/";
-
-  int n_sensors;
-  loader.loadParam(type_path + "n_sensors", n_sensors);
+  int count;
+  loader.loadParam(path + count_key, count);
 
   if (!loader.loadedSuccessfully()) {
-    throw std::runtime_error("missing parameter " + type_path + "n_sensors");
+    throw std::runtime_error("missing parameter " + path + count_key);
   }
 
-  if (n_sensors < 0) {
-    throw std::runtime_error(type_path + "n_sensors must not be negative, got " + std::to_string(n_sensors));
+  if (count < 0) {
+    throw std::runtime_error(path + count_key + " must not be negative, got " + std::to_string(count));
   }
 
-  std::vector<Params> sensors;
+  std::vector<Params> instances;
 
-  for (int i = 0; i < n_sensors; i++) {
-    BlockLoader block(loader, type_path, i);
-    sensors.push_back(load_one(block));
+  for (int i = 0; i < count; i++) {
+    BlockLoader block(loader, path, instance, i);
+    instances.push_back(load_one(block));
   }
 
-  return sensors;
+  return instances;
+}
+
+template <class Params, class Fn>
+std::vector<Params> loadType(mrs_lib::ParamLoader& loader, const std::string& prefix, const std::string& type, Fn load_one) {
+  return loadInstances<Params>(loader, prefix + "sensors/" + type + "/", "n_sensors", "sensor_", load_one);
 }
 
 //}
@@ -268,8 +314,25 @@ SensorsConfig loadSensors(mrs_lib::ParamLoader& loader, const std::string& prefi
   cfg.event         = loadType<EventParams>(loader, prefix, "event", loadEvent);
   cfg.lidar         = loadType<LidarParams>(loader, prefix, "lidar", loadLidar);
   cfg.rangefinder   = loadType<RangefinderParams>(loader, prefix, "rangefinder", loadRangefinder);
+  cfg.devices       = loadInstances<DeviceParams>(loader, prefix + "devices/", "n_devices", "device_", loadDevice);
 
   return cfg;
+}
+
+//}
+
+/* deviceNames() //{ */
+
+std::vector<std::string> deviceNames(const std::vector<DeviceParams>& devices) {
+
+  std::map<std::string, int> seen;
+  std::vector<std::string>   names;
+
+  for (const auto& d : devices) {
+    names.push_back(d.type + "_" + std::to_string(seen[d.type]++));
+  }
+
+  return names;
 }
 
 //}
@@ -304,16 +367,57 @@ std::string unknownKey(const YAML::Node& block, const YAML::Node& reference, con
   return "";
 }
 
+// "" when every key of block is the count, the default or an in-range instance holding only default keys
+std::string checkInstances(const YAML::Node& block, const YAML::Node& defaults, const std::string& path, const std::string& count_key, const std::string& instance,
+                           int count) {
+
+  for (const auto& child : block) {
+
+    const auto key = child.first.as<std::string>();
+
+    if (key == count_key || key == "default") {
+      continue;
+    }
+
+    bool in_range = false;
+
+    if (key.rfind(instance, 0) == 0) {
+      try {
+        size_t    used  = 0;
+        const int index = std::stoi(key.substr(instance.size()), &used);
+        in_range        = used == key.size() - instance.size() && index >= 0 && index < count;
+      }
+      catch (const std::exception&) {
+      }
+    }
+
+    if (!in_range) {
+      return "unexpected key " + path + key + " (" + count_key + " is " + std::to_string(count) + ")";
+    }
+
+    const auto unknown = unknownKey(child.second, defaults, path + key + "/");
+
+    if (!unknown.empty()) {
+      return "unknown parameter " + unknown + ", it is not in the default block";
+    }
+  }
+
+  return "";
+}
+
 }  // namespace
 
 std::string validateSensorKeys(const std::vector<std::string>& yaml_files, const std::string& root_key) {
 
-  std::vector<YAML::Node> sensors;
+  std::vector<YAML::Node> sensors, devices;
 
   for (const auto& file : yaml_files) {
     const YAML::Node root = YAML::LoadFile(file);
     if (root[root_key] && root[root_key]["sensors"]) {
       sensors.push_back(root[root_key]["sensors"]);
+    }
+    if (root[root_key] && root[root_key]["devices"]) {
+      devices.push_back(root[root_key]["devices"]);
     }
   }
 
@@ -347,36 +451,34 @@ std::string validateSensorKeys(const std::vector<std::string>& yaml_files, const
       // a file's own count bounds its own blocks
       const int count = type.second["n_sensors"] ? type.second["n_sensors"].as<int>() : counts[name];
 
-      for (const auto& child : type.second) {
+      const auto error = checkInstances(type.second, defaults[name], base + name + "/", "n_sensors", "sensor_", count);
 
-        const auto key = child.first.as<std::string>();
-
-        if (key == "n_sensors" || key == "default") {
-          continue;
-        }
-
-        bool in_range = false;
-
-        if (key.rfind("sensor_", 0) == 0) {
-          try {
-            size_t    used  = 0;
-            const int index = std::stoi(key.substr(7), &used);
-            in_range        = used == key.size() - 7 && index >= 0 && index < count;
-          }
-          catch (const std::exception&) {
-          }
-        }
-
-        if (!in_range) {
-          return "unexpected key " + base + name + "/" + key + " (n_sensors is " + std::to_string(count) + ")";
-        }
-
-        const auto unknown = unknownKey(child.second, defaults[name], base + name + "/" + key + "/");
-
-        if (!unknown.empty()) {
-          return "unknown parameter " + unknown + ", it is not in the default block";
-        }
+      if (!error.empty()) {
+        return error;
       }
+    }
+  }
+
+  int        n_devices = 0;
+  YAML::Node device_defaults;
+
+  for (auto it = devices.rbegin(); it != devices.rend(); ++it) {
+    if ((*it)["n_devices"]) {
+      n_devices = (*it)["n_devices"].as<int>();
+    }
+    if ((*it)["default"]) {
+      device_defaults = (*it)["default"];
+    }
+  }
+
+  for (const auto& d : devices) {
+
+    const int count = d["n_devices"] ? d["n_devices"].as<int>() : n_devices;
+
+    const auto error = checkInstances(d, device_defaults, root_key + "/devices/", "n_devices", "device_", count);
+
+    if (!error.empty()) {
+      return error;
     }
   }
 

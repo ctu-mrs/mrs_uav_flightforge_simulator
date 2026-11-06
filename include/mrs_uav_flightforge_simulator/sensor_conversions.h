@@ -50,6 +50,24 @@ ueds_connector::Coordinates toUeOffset(const Mount& m);
 
 ueds_connector::Rotation toUeRotation(const Mount& m);
 
+Mount fromUe(const ueds_connector::Coordinates& offset, const ueds_connector::Rotation& rotation);
+
+//}
+
+/* device sensors, as the simulator built them //{ */
+
+CameraParams toCameraParams(const ueds_connector::RgbCameraConfig& cfg, double rate);
+
+FisheyeParams toFisheyeParams(const ueds_connector::FisheyeCameraConfig& cfg, double rate);
+
+StereoParams toStereoParams(const Serializable::Drone::StereoCameraConfig& cfg, double rate);
+
+Mount leftEyeMount(const Serializable::Drone::StereoCameraConfig& cfg);
+
+Mount rightEyeMount(const Serializable::Drone::StereoCameraConfig& cfg);
+
+LidarParams toLidarParams(const ueds_connector::LidarConfig& cfg, const DeviceParams& device);
+
 //}
 
 /* lidar //{ */

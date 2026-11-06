@@ -192,6 +192,27 @@ mrs_uav_flightforge_simulator:
         offset: {x: 0.0, y: 0.0, z: 0.0} # [m]
         rotation: {roll: 0.0, pitch: 90.0, yaw: 0.0} # [deg]
 
+  # Real sensors from the simulator's device library, with datasheet parameters and housing meshes.
+  # Each takes a type: livox_mid360, livox_avia, ouster_os0_32, ouster_os1_64, odin1 or realsense_d435i.
+  # device_<i> overrides any key of the default block. Topics are /<uav>/<type>_<k>/<role>/..., TF frames
+  # <uav>/<type>_<k>_<role>, with k counting devices of that type and role one of lidar, rgb, stereo, fisheye.
+  devices:
+    n_devices: 0
+    default:
+      type: ""
+      camera_rate: 30.0 # [Hz]
+      lidar_rate: 0.0 # [Hz], 0 keeps the device's own rate
+      show_mesh: true
+      offset: {x: 0.0, y: 0.0, z: 0.1} # [m] of the housing base
+      rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0} # [deg]
+      intensity: false # adds the material class as "intensity"
+      labels: false # adds "class_id" and "instance_id"
+      publish_free: false # unit directions of rays without a return on .../points_free
+      noise:
+        enabled: true
+        std_at_1m: 0.01 # [m]
+        std_slope: 0.2 # [-] multiplies std_at_1m for each meter of measured distance
+
 
 # randomization of the initial conditions around the desired spawn point
 randomization:

@@ -136,3 +136,49 @@ TEST(Images, RawFrameNeedsExactSize) {
   EXPECT_FALSE(rawFrame(raw, 4, 3));
   EXPECT_FALSE(rawFrame({}, 4, 2));
 }
+
+TEST(DeviceReadback, MountRoundTrips) {
+  const Mount m{0.1, -0.2, 0.3, 5.0, 10.0, -20.0};
+  const Mount r = fromUe(toUeOffset(m), toUeRotation(m));
+  EXPECT_DOUBLE_EQ(r.x, m.x);
+  EXPECT_DOUBLE_EQ(r.y, m.y);
+  EXPECT_DOUBLE_EQ(r.z, m.z);
+  EXPECT_DOUBLE_EQ(r.roll, m.roll);
+  EXPECT_DOUBLE_EQ(r.pitch, m.pitch);
+  EXPECT_DOUBLE_EQ(r.yaw, m.yaw);
+}
+
+TEST(DeviceReadback, StereoRecoversBaselineAndCentre) {
+  Serializable::Drone::StereoCameraConfig cfg{};
+  cfg.offset_x_left_  = 10.0;
+  cfg.offset_y_left_  = -2.5;
+  cfg.offset_x_right_ = 10.0;
+  cfg.offset_y_right_ = 2.5;
+
+  const auto p = toStereoParams(cfg, 30.0);
+
+  EXPECT_NEAR(p.baseline, 0.05, 1e-12);
+  EXPECT_NEAR(p.mount.x, 0.1, 1e-12);
+  EXPECT_NEAR(p.mount.y, 0.0, 1e-12);
+  EXPECT_NEAR(leftEyeMount(cfg).y, 0.025, 1e-12);
+  EXPECT_NEAR(rightEyeMount(cfg).y, -0.025, 1e-12);
+}
+
+TEST(DeviceReadback, LidarKeepsItsRateUnlessOverridden) {
+  ueds_connector::LidarConfig cfg{};
+  cfg.Frequency  = 10.0;
+  cfg.beamLength = 4000.0;
+
+  DeviceParams device{};
+  device.intensity = true;
+
+  auto p = toLidarParams(cfg, device);
+
+  EXPECT_DOUBLE_EQ(p.rate, 10.0);
+  EXPECT_DOUBLE_EQ(p.beam_length, 40.0);
+  EXPECT_TRUE(p.intensity);
+
+  device.lidar_rate = 20.0;
+
+  EXPECT_DOUBLE_EQ(toLidarParams(cfg, device).rate, 20.0);
+}

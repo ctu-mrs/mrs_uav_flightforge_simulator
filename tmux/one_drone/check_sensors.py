@@ -19,6 +19,37 @@ ROOT = "mrs_uav_flightforge_simulator"
 CAMERAS = ["rgb", "rgb_segmented", "depth", "instance_seg", "fisheye"]
 
 
+DEVICE_ROLES = {
+    "livox_mid360": ["lidar"],
+    "livox_avia": ["lidar"],
+    "ouster_os0_32": ["lidar"],
+    "ouster_os1_64": ["lidar"],
+    "odin1": ["lidar", "fisheye"],
+    "realsense_d435i": ["stereo", "rgb"],
+}
+
+
+def merged_devices():
+    here = os.path.dirname(os.path.abspath(__file__))
+    custom = yaml.safe_load(open(os.path.join(here, "config", "simulator.yaml")))
+    default = yaml.safe_load(open(os.path.join(get_package_share_directory(ROOT), "config", "flightforge_simulator.yaml")))
+    uav = custom["uav_names"][0]
+    base = default[ROOT]["devices"]
+    over = custom.get(ROOT, {}).get("devices", {})
+    seen = {}
+    out = []
+    for i in range(over.get("n_devices", base["n_devices"])):
+        params = dict(base["default"])
+        params.update(over.get("default", {}) or {})
+        params.update(over.get(f"device_{i}", {}) or {})
+        k = seen.get(params["type"], 0)
+        seen[params["type"]] = k + 1
+        for role in DEVICE_ROLES[params["type"]]:
+            rate = params["camera_rate"] if role != "lidar" else (params["lidar_rate"] or 10.0)
+            out.append((uav, role, f'{params["type"]}_{k}', {"rate": rate, "publish_free": params["publish_free"]}))
+    return out
+
+
 def merged_sensors():
     here = os.path.dirname(os.path.abspath(__file__))
     custom = yaml.safe_load(open(os.path.join(here, "config", "simulator.yaml")))
@@ -36,19 +67,21 @@ def merged_sensors():
 
 
 def topics_for(uav, kind, i, params):
-    ns = f"/{uav}/{kind}_{i}"
-    if kind in CAMERAS:
-        return [(ns + "/image_raw", Image, f"{uav}/{kind}_{i}", ns + "/camera_info")]
+    device = isinstance(i, str)
+    ns = f"/{uav}/{i}/{kind}" if device else f"/{uav}/{kind}_{i}"
+    frame = f"{uav}/{i}_{kind}" if device else f"{uav}/{kind}_{i}"
+    if kind in CAMERAS or kind == "fisheye":
+        return [(ns + "/image_raw", Image, frame, ns + "/camera_info")]
     if kind == "stereo":
-        return [(ns + f"/{eye}/image_raw", Image, f"{uav}/{kind}_{i}_{eye}", ns + f"/{eye}/camera_info") for eye in ("left", "right")]
+        return [(ns + f"/{eye}/image_raw", Image, f"{frame}_{eye}", ns + f"/{eye}/camera_info") for eye in ("left", "right")]
     if kind == "event":
-        return [(ns + "/events", EventPacket, f"{uav}/{kind}_{i}", None)]
+        return [(ns + "/events", EventPacket, frame, None)]
     if kind == "lidar":
-        out = [(ns + "/points", PointCloud2, f"{uav}/{kind}_{i}", None)]
+        out = [(ns + "/points", PointCloud2, frame, None)]
         if params.get("publish_free", True):
-            out.append((ns + "/points_free", PointCloud2, f"{uav}/{kind}_{i}", None))
+            out.append((ns + "/points_free", PointCloud2, frame, None))
         return out
-    return [(ns + "/range", Range, f"{uav}/{kind}_{i}", None)]
+    return [(ns + "/range", Range, frame, None)]
 
 
 class Checker(Node):
@@ -82,7 +115,7 @@ class Checker(Node):
 def main():
     duration = float(sys.argv[1]) if len(sys.argv) > 1 else 30.0
     rclpy.init()
-    node = Checker(merged_sensors())
+    node = Checker(merged_sensors() + merged_devices())
     t0 = time.time()
     while time.time() - t0 < duration:
         rclpy.spin_once(node, timeout_sec=0.05)

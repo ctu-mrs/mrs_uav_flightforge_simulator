@@ -77,6 +77,36 @@ The ROS node has two ways of keeping the simulator and ROS time together, chosen
 
 In lockstep the simulator advances on a grid: every physics step if a sensor runs at `simulation_rate`, otherwise as coarsely as the fastest sensor allows, and never below 30 Hz. A sensor's rate holds on average, with its stamps on grid points. Raise `simulation_rate` for a finer grid.
 
+## Device presets
+
+Real sensors come from the simulator's device library, with their datasheet parameters, mounting offsets and housing meshes. Add them under `devices` in your custom config:
+
+```yaml
+mrs_uav_flightforge_simulator:
+  devices:
+    n_devices: 2
+    device_0:
+      type: "livox_mid360"
+      offset: {x: 0.0, y: 0.0, z: 0.12}
+    device_1:
+      type: "realsense_d435i"
+      offset: {x: 0.2, y: 0.0, z: 0.0}
+      rotation: {pitch: 15.0}
+```
+
+| `type` | Sensors | Roles |
+|---|---|---|
+| `livox_mid360` | non-repetitive 360x59 deg lidar, 40 m | `lidar` |
+| `livox_avia` | non-repetitive 70x77 deg lidar, 190 m | `lidar` |
+| `ouster_os0_32` | 32 channels, 1024 columns, 90 deg vertical, 50 m | `lidar` |
+| `ouster_os1_64` | 64 channels, 1024 columns, 45 deg vertical, 120 m | `lidar` |
+| `odin1` | 120x90 deg solid-state lidar, 70 m, and a 173 deg fisheye, 1600x1296 | `lidar`, `fisheye` |
+| `realsense_d435i` | 5 cm stereo pair, 848x480, and RGB, 1280x720 | `stereo`, `rgb` |
+
+Topics are `/<uav>/<type>_<k>/<role>/...`, for example `/uav1/livox_mid360_0/lidar/points` or `/uav1/realsense_d435i_0/stereo/left/image_raw`, and TF frames `<uav>/<type>_<k>_<role>`. `k` counts devices of the same type. The offset places the base of the housing.
+
+Lidars keep the device's rate unless `lidar_rate` is set, and cameras run at `camera_rate`. The other keys are in the `devices` block of `config/flightforge_simulator.yaml`. The Odin1 camera renders six faces at full resolution, so it is the most expensive one to run; lower its `camera_rate` if the simulator slows down.
+
 ## Citing this work
 
 If you use this simulator in your research, please cite the following paper:

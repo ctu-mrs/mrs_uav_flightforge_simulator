@@ -82,6 +82,17 @@ struct RangefinderParams
   Mount  mount;
 };
 
+struct DeviceParams
+{
+  std::string type;
+  double      camera_rate;  // [Hz]
+  double      lidar_rate;   // [Hz], 0 keeps the device's own
+  bool        show_mesh;
+  Mount       mount;
+  bool        intensity, labels, publish_free;
+  LidarNoise  noise;
+};
+
 struct SensorsConfig
 {
   std::vector<CameraParams>      rgb, rgb_segmented, depth, instance_seg;
@@ -90,6 +101,7 @@ struct SensorsConfig
   std::vector<EventParams>       event;
   std::vector<LidarParams>       lidar;
   std::vector<RangefinderParams> rangefinder;
+  std::vector<DeviceParams>      devices;
 
   double highestRate() const;
 };
@@ -97,6 +109,9 @@ struct SensorsConfig
 //}
 
 extern const std::vector<std::string> kSensorTypes;
+
+// "<type>_<k>" for each device, k counting devices of the same type
+std::vector<std::string> deviceNames(const std::vector<DeviceParams>& devices);
 
 // throws std::runtime_error naming the offending parameter path
 SensorsConfig loadSensors(mrs_lib::ParamLoader& loader, const std::string& prefix);
