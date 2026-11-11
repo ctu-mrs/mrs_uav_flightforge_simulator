@@ -670,16 +670,6 @@ void FlightforgeSimulator::timerInit() {
     exit(1);
   }
 
-  // robots outlive the node too
-  if (const auto robots = ff_sim_->ListRobots()) {
-    for (const auto& robot : *robots) {
-      if (std::find(uav_names.begin(), uav_names.end(), robot.label) != uav_names.end()) {
-        RCLCPP_INFO(node_->get_logger(), "removing %s left by a previous run", robot.label.c_str());
-        ff_sim_->RemoveRobot(robot.id);
-      }
-    }
-  }
-
   for (size_t i = 0; i < uav_names.size(); i++) {
 
     const std::string uav_name = uav_names[i];
