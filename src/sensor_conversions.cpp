@@ -136,16 +136,16 @@ const Serializable::Drone::CameraInfo* findEye(const std::vector<Serializable::D
   return nullptr;
 }
 
-ueds_connector::Coordinates toUeOffset(const Mount& m) {
-  return ueds_connector::Coordinates(m.x * 100.0, -m.y * 100.0, m.z * 100.0);
+flightforge::Coordinates toUeOffset(const Mount& m) {
+  return flightforge::Coordinates(m.x * 100.0, -m.y * 100.0, m.z * 100.0);
 }
 
-ueds_connector::Rotation toUeRotation(const Mount& m) {
+flightforge::Rotation toUeRotation(const Mount& m) {
   // same convention as the drone pose in updateUnrealPoses
-  return ueds_connector::Rotation(-m.pitch, -m.yaw, m.roll);
+  return flightforge::Rotation(-m.pitch, -m.yaw, m.roll);
 }
 
-Mount fromUe(const ueds_connector::Coordinates& offset, const ueds_connector::Rotation& rotation) {
+Mount fromUe(const flightforge::Coordinates& offset, const flightforge::Rotation& rotation) {
   return Mount{offset.x / 100.0, -offset.y / 100.0, offset.z / 100.0, rotation.roll, -rotation.pitch, -rotation.yaw};
 }
 
@@ -153,7 +153,7 @@ Mount fromUe(const ueds_connector::Coordinates& offset, const ueds_connector::Ro
 
 /* device sensors, as the simulator built them //{ */
 
-CameraParams toCameraParams(const ueds_connector::RgbCameraConfig& cfg, double rate) {
+CameraParams toCameraParams(const flightforge::RgbCameraConfig& cfg, double rate) {
 
   CameraParams p{};
 
@@ -172,7 +172,7 @@ CameraParams toCameraParams(const ueds_connector::RgbCameraConfig& cfg, double r
   return p;
 }
 
-FisheyeParams toFisheyeParams(const ueds_connector::FisheyeCameraConfig& cfg, double rate) {
+FisheyeParams toFisheyeParams(const flightforge::FisheyeCameraConfig& cfg, double rate) {
 
   FisheyeParams p{};
 
@@ -188,13 +188,13 @@ FisheyeParams toFisheyeParams(const ueds_connector::FisheyeCameraConfig& cfg, do
 }
 
 Mount leftEyeMount(const Serializable::Drone::StereoCameraConfig& cfg) {
-  return fromUe(ueds_connector::Coordinates(cfg.offset_x_left_, cfg.offset_y_left_, cfg.offset_z_left_),
-                ueds_connector::Rotation(cfg.rotation_pitch_left_, cfg.rotation_yaw_left_, cfg.rotation_roll_left_));
+  return fromUe(flightforge::Coordinates(cfg.offset_x_left_, cfg.offset_y_left_, cfg.offset_z_left_),
+                flightforge::Rotation(cfg.rotation_pitch_left_, cfg.rotation_yaw_left_, cfg.rotation_roll_left_));
 }
 
 Mount rightEyeMount(const Serializable::Drone::StereoCameraConfig& cfg) {
-  return fromUe(ueds_connector::Coordinates(cfg.offset_x_right_, cfg.offset_y_right_, cfg.offset_z_right_),
-                ueds_connector::Rotation(cfg.rotation_pitch_right_, cfg.rotation_yaw_right_, cfg.rotation_roll_right_));
+  return fromUe(flightforge::Coordinates(cfg.offset_x_right_, cfg.offset_y_right_, cfg.offset_z_right_),
+                flightforge::Rotation(cfg.rotation_pitch_right_, cfg.rotation_yaw_right_, cfg.rotation_roll_right_));
 }
 
 StereoParams toStereoParams(const Serializable::Drone::StereoCameraConfig& cfg, double rate) {
@@ -219,7 +219,7 @@ StereoParams toStereoParams(const Serializable::Drone::StereoCameraConfig& cfg, 
   return p;
 }
 
-LidarParams toLidarParams(const ueds_connector::LidarConfig& cfg, const DeviceParams& device) {
+LidarParams toLidarParams(const flightforge::LidarConfig& cfg, const DeviceParams& device) {
 
   LidarParams p{};
 
@@ -279,7 +279,7 @@ sensor_msgs::msg::PointCloud2 emptyCloud(const std_msgs::msg::Header& header, bo
 
 }  // namespace
 
-std::optional<LidarClouds> toLidarClouds(const ueds_connector::LidarScan& scan, const LidarParams& p, const std_msgs::msg::Header& header, std::mt19937& rng) {
+std::optional<LidarClouds> toLidarClouds(const flightforge::LidarScan& scan, const LidarParams& p, const std_msgs::msg::Header& header, std::mt19937& rng) {
 
   const size_t n = scan.points.size();
 
@@ -365,7 +365,7 @@ std::optional<LidarClouds> toLidarClouds(const ueds_connector::LidarScan& scan, 
 
 /* events and labels //{ */
 
-event_camera_msgs::msg::EventPacket toEventPacket(const ueds_connector::CameraEvents& ev, const std_msgs::msg::Header& header) {
+event_camera_msgs::msg::EventPacket toEventPacket(const flightforge::CameraEvents& ev, const std_msgs::msg::Header& header) {
 
   event_camera_msgs::msg::EventPacket pkt;
 
