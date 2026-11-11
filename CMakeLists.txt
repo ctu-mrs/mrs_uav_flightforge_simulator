@@ -121,8 +121,8 @@ endif()
 
 add_library(MrsUavFlightforgeSimulator_FlightforgeConnector SHARED
   src/flight_forge_connector/socket_client.cpp
-  src/flight_forge_connector/flight_forge_connector.cpp
-  src/flight_forge_connector/game_mode_controller.cpp
+  src/flight_forge_connector/robot_client.cpp
+  src/flight_forge_connector/simulator_client.cpp
 )
 
 ## | ------------------------- Sensors ------------------------ |

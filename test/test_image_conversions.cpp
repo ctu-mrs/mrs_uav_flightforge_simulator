@@ -165,7 +165,7 @@ TEST(DeviceReadback, StereoRecoversBaselineAndCentre) {
 }
 
 TEST(DeviceReadback, LidarKeepsItsRateUnlessOverridden) {
-  ueds_connector::LidarConfig cfg{};
+  flightforge::LidarConfig cfg{};
   cfg.Frequency  = 10.0;
   cfg.beamLength = 4000.0;
 

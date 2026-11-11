@@ -14,10 +14,10 @@ struct Ray
   double distance_cm, dx, dy, dz;
 };
 
-ueds_connector::LidarScan scan(const std::vector<Ray>& rays) {
-  ueds_connector::LidarScan s;
+flightforge::LidarScan scan(const std::vector<Ray>& rays) {
+  flightforge::LidarScan s;
   for (const auto& r : rays) {
-    ueds_connector::LidarData d;
+    flightforge::LidarData d;
     d.distance   = r.distance_cm;
     d.directionX = r.dx;
     d.directionY = r.dy;
@@ -27,7 +27,7 @@ ueds_connector::LidarScan scan(const std::vector<Ray>& rays) {
   return s;
 }
 
-ueds_connector::LidarScan withAll(ueds_connector::LidarScan s) {
+flightforge::LidarScan withAll(flightforge::LidarScan s) {
   s.intensity.assign(s.points.size(), 4);
   s.class_id.assign(s.points.size(), 2);
   s.instance_id.assign(s.points.size(), 9);

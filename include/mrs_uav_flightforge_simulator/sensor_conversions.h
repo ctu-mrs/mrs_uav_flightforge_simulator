@@ -46,19 +46,19 @@ sensor_msgs::msg::CameraInfo toCameraInfo(const Serializable::Drone::CameraInfo&
 
 const Serializable::Drone::CameraInfo* findEye(const std::vector<Serializable::Drone::CameraInfo>& infos, int eye);
 
-ueds_connector::Coordinates toUeOffset(const Mount& m);
+flightforge::Coordinates toUeOffset(const Mount& m);
 
-ueds_connector::Rotation toUeRotation(const Mount& m);
+flightforge::Rotation toUeRotation(const Mount& m);
 
-Mount fromUe(const ueds_connector::Coordinates& offset, const ueds_connector::Rotation& rotation);
+Mount fromUe(const flightforge::Coordinates& offset, const flightforge::Rotation& rotation);
 
 //}
 
 /* device sensors, as the simulator built them //{ */
 
-CameraParams toCameraParams(const ueds_connector::RgbCameraConfig& cfg, double rate);
+CameraParams toCameraParams(const flightforge::RgbCameraConfig& cfg, double rate);
 
-FisheyeParams toFisheyeParams(const ueds_connector::FisheyeCameraConfig& cfg, double rate);
+FisheyeParams toFisheyeParams(const flightforge::FisheyeCameraConfig& cfg, double rate);
 
 StereoParams toStereoParams(const Serializable::Drone::StereoCameraConfig& cfg, double rate);
 
@@ -66,7 +66,7 @@ Mount leftEyeMount(const Serializable::Drone::StereoCameraConfig& cfg);
 
 Mount rightEyeMount(const Serializable::Drone::StereoCameraConfig& cfg);
 
-LidarParams toLidarParams(const ueds_connector::LidarConfig& cfg, const DeviceParams& device);
+LidarParams toLidarParams(const flightforge::LidarConfig& cfg, const DeviceParams& device);
 
 //}
 
@@ -78,13 +78,13 @@ struct LidarClouds
 };
 
 // nullopt when a requested channel is not parallel to the points
-std::optional<LidarClouds> toLidarClouds(const ueds_connector::LidarScan& scan, const LidarParams& p, const std_msgs::msg::Header& header, std::mt19937& rng);
+std::optional<LidarClouds> toLidarClouds(const flightforge::LidarScan& scan, const LidarParams& p, const std_msgs::msg::Header& header, std::mt19937& rng);
 
 //}
 
 /* events and labels //{ */
 
-event_camera_msgs::msg::EventPacket toEventPacket(const ueds_connector::CameraEvents& ev, const std_msgs::msg::Header& header);
+event_camera_msgs::msg::EventPacket toEventPacket(const flightforge::CameraEvents& ev, const std_msgs::msg::Header& header);
 
 mrs_uav_flightforge_simulator::msg::InstanceMap toInstanceMap(const std::vector<Serializable::Drone::InstanceSegMapEntry>& entries,
                                                               const std_msgs::msg::Header&                             header);

@@ -39,8 +39,8 @@ public:
   std::vector<Decoded> events;
 };
 
-ueds_connector::CameraEvents events(const std::vector<Ev>& in) {
-  ueds_connector::CameraEvents ev;
+flightforge::CameraEvents events(const std::vector<Ev>& in) {
+  flightforge::CameraEvents ev;
   ev.width      = 640;
   ev.height     = 480;
   ev.base_stamp = 12.5;
