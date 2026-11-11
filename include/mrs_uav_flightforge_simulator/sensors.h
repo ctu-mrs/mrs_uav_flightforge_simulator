@@ -28,7 +28,7 @@ namespace mrs_uav_flightforge_simulator
 struct CameraSensor
 {
   CameraParams                                                              params;
-  int                                                                       type = 0;
+  flightforge::wire::SensorType                                             type = flightforge::wire::SensorType::RGB_CAMERA;
   int                                                                       id   = -1;
   std::string                                                               name;
   std::string                                                               frame;
@@ -101,7 +101,8 @@ struct RangefinderSensor
   std::string                                        name;
   std::string                                        frame;
   mrs_lib::PublisherHandler<sensor_msgs::msg::Range> ph_range;
-  std::shared_ptr<flightforge::RobotClient> connector;
+  std::shared_ptr<flightforge::RobotClient>          connector;
+  rclcpp::Time                                       last_published_stamp{0, 0, RCL_ROS_TIME};
 };
 
 //}

@@ -1,8 +1,10 @@
 #pragma once
 
+#include <array>
 #include <optional>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <opencv2/core.hpp>
@@ -17,7 +19,6 @@
 #include <mrs_uav_flightforge_simulator/msg/instance_map.hpp>
 
 #include <flight_forge_connector/data_types.h>
-#include <flight_forge_connector/serialization/serializable_shared.h>
 
 #include <mrs_uav_flightforge_simulator/sensor_config.h>
 
@@ -26,11 +27,8 @@ namespace mrs_uav_flightforge_simulator
 
 /* images //{ */
 
-// nullopt when empty, undecodable, or not width x height
-std::optional<cv::Mat> decodeFrame(const std::vector<unsigned char>& data, int width, int height);
-
-// the segmentation camera sends uncompressed BGR
-std::optional<cv::Mat> rawFrame(const std::vector<unsigned char>& data, int width, int height);
+// BGR8; nullopt when empty, undecodable, or not width x height
+std::optional<cv::Mat> toBgr(const flightforge::Image& image, int width, int height);
 
 sensor_msgs::msg::Image toColorImage(const cv::Mat& bgr, const std_msgs::msg::Header& header);
 
@@ -42,31 +40,46 @@ std::optional<sensor_msgs::msg::Image> toDepthImage(const std::vector<uint16_t>&
 
 /* calibration and mounting //{ */
 
-sensor_msgs::msg::CameraInfo toCameraInfo(const Serializable::Drone::CameraInfo& ci);
+sensor_msgs::msg::CameraInfo toCameraInfo(const flightforge::wire::CameraInfoT& ci);
 
-const Serializable::Drone::CameraInfo* findEye(const std::vector<Serializable::Drone::CameraInfo>& infos, int eye);
+const flightforge::wire::CameraInfoT* findEye(const std::vector<flightforge::wire::CameraInfoT>& infos, flightforge::wire::Eye eye);
 
-flightforge::Coordinates toUeOffset(const Mount& m);
+flightforge::Pose toPose(const Mount& m);
 
-flightforge::Rotation toUeRotation(const Mount& m);
+// a missing pose is the identity
+Mount toMount(const flightforge::wire::Pose* pose);
 
-Mount fromUe(const flightforge::Coordinates& offset, const flightforge::Rotation& rotation);
+// the eyes sit at +-baseline/2 along the rig's y
+std::pair<Mount, Mount> stereoEyes(const Mount& rig, double baseline);
+
+// the simulator's rangefinder beam is its mount's -z, sensor_msgs/Range's is +x
+flightforge::Pose rangefinderPose(const Mount& m);
+
+//}
+
+/* sensor configs //{ */
+
+void applyCameraParams(const CameraParams& p, flightforge::wire::RgbCameraConfigT& cfg);
+
+void applyFisheyeParams(const FisheyeParams& p, flightforge::wire::FisheyeCameraConfigT& cfg);
+
+void applyStereoParams(const StereoParams& p, flightforge::wire::StereoCameraConfigT& cfg);
+
+void applyEventParams(const EventParams& p, flightforge::wire::EventCameraConfigT& cfg);
+
+void applyLidarParams(const LidarParams& p, flightforge::wire::LidarConfigT& cfg);
 
 //}
 
 /* device sensors, as the simulator built them //{ */
 
-CameraParams toCameraParams(const flightforge::RgbCameraConfig& cfg, double rate);
+CameraParams toCameraParams(const flightforge::wire::RgbCameraConfigT& cfg, double rate);
 
-FisheyeParams toFisheyeParams(const flightforge::FisheyeCameraConfig& cfg, double rate);
+FisheyeParams toFisheyeParams(const flightforge::wire::FisheyeCameraConfigT& cfg, double rate);
 
-StereoParams toStereoParams(const Serializable::Drone::StereoCameraConfig& cfg, double rate);
+StereoParams toStereoParams(const flightforge::wire::StereoCameraConfigT& cfg, double rate);
 
-Mount leftEyeMount(const Serializable::Drone::StereoCameraConfig& cfg);
-
-Mount rightEyeMount(const Serializable::Drone::StereoCameraConfig& cfg);
-
-LidarParams toLidarParams(const flightforge::LidarConfig& cfg, const DeviceParams& device);
+LidarParams toLidarParams(const flightforge::wire::LidarConfigT& cfg, const DeviceParams& device);
 
 //}
 
@@ -77,7 +90,10 @@ struct LidarClouds
   sensor_msgs::msg::PointCloud2 points, free;
 };
 
-// nullopt when a requested channel is not parallel to the points
+// unit vector of an organised scan's beam, row 0 the top beam and column 0 the leftmost
+std::array<float, 3> beamDirection(const LidarParams& p, uint32_t row, uint32_t col);
+
+// nullopt when a requested channel is not parallel to the points; free stays empty unless the scan is organised as p says
 std::optional<LidarClouds> toLidarClouds(const flightforge::LidarScan& scan, const LidarParams& p, const std_msgs::msg::Header& header, std::mt19937& rng);
 
 //}
@@ -86,8 +102,8 @@ std::optional<LidarClouds> toLidarClouds(const flightforge::LidarScan& scan, con
 
 event_camera_msgs::msg::EventPacket toEventPacket(const flightforge::CameraEvents& ev, const std_msgs::msg::Header& header);
 
-mrs_uav_flightforge_simulator::msg::InstanceMap toInstanceMap(const std::vector<Serializable::Drone::InstanceSegMapEntry>& entries,
-                                                              const std_msgs::msg::Header&                             header);
+mrs_uav_flightforge_simulator::msg::InstanceMap toInstanceMap(const std::vector<flightforge::wire::InstanceSegEntryT>& entries,
+                                                              const std_msgs::msg::Header&                          header);
 
 //}
 

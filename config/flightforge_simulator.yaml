@@ -6,8 +6,8 @@ mrs_uav_flightforge_simulator:
   # The ip address of the simulator. If running locally, set to "localhost". 
   simulator_ip: "localhost"
 
-  # The game mode port of the simulator (drone ports are assigned by the simulator on spawn).
-  simulator_port: 8551
+  # The simulator's port; every UAV and sensor is reached through it.
+  simulator_port: 8600
 
   # "lockstep" makes sensor rates exact in sim time, "free_running" stays closer to real time
   time_model: "free_running"
@@ -191,7 +191,7 @@ mrs_uav_flightforge_simulator:
           std_at_1m: 0.01 # [m]
           std_slope: 0.2 # [-] multiplies std_at_1m for each meter of measured distance
 
-    # the simulator's rangefinder looks straight down from the airframe; the mount only places its TF frame
+    # measures along its frame's x, as sensor_msgs/Range does; the default looks straight down
     rangefinder:
       n_sensors: 1
       default:
