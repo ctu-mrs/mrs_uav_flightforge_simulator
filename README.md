@@ -68,6 +68,18 @@ cd /opt/ros/jazzy/share/mrs_uav_flightforge_simulator
 ```
 10. The first start might require hitting "CTRL+C" in the `roscore` tab of the tmux session. The roscore is always stuck for the first time after rebooting the computer.
 
+## Connecting to the simulator
+
+The node reaches the simulator on one TCP port, `simulator_port` (8600 by default), at `simulator_ip`; every UAV and sensor goes through it. It needs a simulator speaking API 1.x and shuts down, naming both versions, if the major version differs.
+
+## Frames and units
+
+- The world frame is right-handed with z up, metres, and z = 0 on the floor under the level's spawn point. UAV spawn positions, poses and scene files use it.
+- Sensor mounts (`offset` in metres, `rotation` as roll, pitch and yaw in degrees) are relative to `<uav>/fcu`, x forward, y left, z up. Cameras look along the mount's x; their images are in the optical frame of the published TF.
+- Lidar points are in metres in the lidar's frame. `points_free` holds unit directions of the rays without a return; a Livox scan has no beam grid, so for it `points_free` stays empty.
+- The rangefinder measures along its frame's x and publishes metres, `+inf` when nothing is in range.
+- Every stamp is simulated time.
+
 ## Time models
 
 The ROS node has two ways of keeping the simulator and ROS time together, chosen with `time_model` in the config:
