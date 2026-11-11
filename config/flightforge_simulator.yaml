@@ -71,13 +71,13 @@ mrs_uav_flightforge_simulator:
     hour: 18
     minute: 25
 
-  ############ Only Forest Procedural Generation settings ############
+  ############ Procedural generation, world_name "infinite_forest" only ############
 
   # Choose cluttered difficulties from 1 [high] to 10 [low]
-  ueds_forest_density: 6
+  forest_density: 6
 
   # Choose Hilly Level from 1 [totally flat] to 5 [the most hilly]
-  ueds_forest_hilly_level: 3
+  forest_hilly_level: 3
 
   ####################################################################
 

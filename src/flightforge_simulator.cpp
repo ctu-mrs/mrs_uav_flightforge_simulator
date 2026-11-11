@@ -519,6 +519,8 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "daytime/hour", daytime_hour_);
   param_loader.loadParam(yaml_prefix + "daytime/minute", daytime_minute_);
   param_loader.loadParam(yaml_prefix + "world_name", flightforge_world_level_name_enum_);
+  param_loader.loadParam(yaml_prefix + "forest_density", flightforge_forest_density_);
+  param_loader.loadParam(yaml_prefix + "forest_hilly_level", flightforge_forest_hilly_level_);
 
   std::vector<std::string> scene_files, libraries;
   param_loader.loadParam(yaml_prefix + "scene_files", scene_files);
@@ -675,24 +677,20 @@ void FlightforgeSimulator::timerInit() {
     RCLCPP_ERROR(node_->get_logger(), "Setdaytime error");
   }
 
+  if (flightforge_world_level_name_enum_ == "infinite_forest") {
 
-  /* // | --------------------- These graphical settings influence only Forest Game World --------------------- | */
+    if (ff_sim_->SetForestDensity(flightforge_forest_density_)) {
+      RCLCPP_INFO(node_->get_logger(), "Forest density set to %d", flightforge_forest_density_);
+    } else {
+      RCLCPP_ERROR(node_->get_logger(), "Failed to set the forest density to %d", flightforge_forest_density_);
+    }
 
-  /* res = ff_sim_->SetForestDensity(ff_forest_density_); */
-  /* if (res) { */
-  /*   ROS_INFO("[UnrealSimulator]: Forest Density was set succesfully to '%d'", ff_forest_density_); */
-  /* } else { */
-  /*   ROS_ERROR("[UnrealSimulator]: Forest Density wasn't set succesfully to '%d'", ff_forest_density_); */
-  /* } */
-
-  /* res = ff_sim_->SetForestHillyLevel(ff_forest_hilly_level_); */
-  /* if (res) { */
-  /*   ROS_INFO("[UnrealSimulator]: Forest Hilly Level was set succesfully to '%d'", ff_forest_hilly_level_); */
-  /* } else { */
-  /*   ROS_ERROR("[UnrealSimulator]: Forest Hilly Level wasn't set succesfully to '%d'", ff_forest_hilly_level_); */
-  /* } */
-
-  /* std::this_thread::sleep_for(std::chrono::seconds(1)); */
+    if (ff_sim_->SetForestHillyLevel(flightforge_forest_hilly_level_)) {
+      RCLCPP_INFO(node_->get_logger(), "Forest hilly level set to %d", flightforge_forest_hilly_level_);
+    } else {
+      RCLCPP_ERROR(node_->get_logger(), "Failed to set the forest hilly level to %d", flightforge_forest_hilly_level_);
+    }
+  }
 
   for (const auto& library : libraries) {
 
