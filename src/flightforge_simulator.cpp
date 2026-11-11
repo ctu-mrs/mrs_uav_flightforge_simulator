@@ -41,8 +41,6 @@
 
 #include <flight_forge_connector/robot_client.h>
 #include <flight_forge_connector/simulator_client.h>
-#include <flight_forge_connector/serialization/serializable_shared.h>
-#include <flight_forge_connector/serialization/serializable_schema.h>
 
 #include <pcl/point_types.h>
 #include <pcl/conversions.h>
@@ -50,6 +48,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/common/transforms.h>
 
+#include <cctype>
 #include <condition_variable>
 #include <random>
 #include <thread>
@@ -107,7 +106,6 @@ private:
 
   double _simulation_rate_;
   double _clock_rate_;
-  bool   _collisions_ = true;
 
   rclcpp::Time sim_time_;
   double       sim_time_wall_ = 0;
@@ -162,7 +160,6 @@ private:
 
   std::vector<std::unique_ptr<SensorWorker>> workers_;
   std::vector<ScheduledSensor>               schedule_;
-  std::vector<int>                           drone_ports_;
 
   FetchBarrier fetches_;
 
@@ -180,7 +177,8 @@ private:
   double mainTimerPeriod(double rtf) const;
 
   void         stepSimulator(const rclcpp::Time& sim_time);
-  rclcpp::Time sensorStamp(double capture_stamp);
+  rclcpp::Time cameraStamp(double capture_stamp);
+  rclcpp::Time worldStamp(double world_time);
 
   void setupSensors(size_t uav);
   void setupDevices(size_t uav);
@@ -189,7 +187,7 @@ private:
   [[noreturn]] void failSetup(size_t uav, const std::string& what);
 
   std::shared_ptr<flightforge::RobotClient>    connectSensor(size_t uav, const std::string& name);
-  std::vector<Serializable::Drone::CameraInfo>      calibration(size_t uav, int id, const std::string& name);
+  std::vector<flightforge::wire::CameraInfoT>  calibration(size_t uav, int id, const std::string& name);
   void                                              warnOnSize(size_t uav, const sensor_msgs::msg::CameraInfo& info, int width, int height, const std::string& name);
   void                                              registerCamera(size_t uav, CameraSensor s, const std::string& topic);
   void                                              registerFisheye(size_t uav, FisheyeSensor s, const std::string& topic);
@@ -232,18 +230,15 @@ private:
 
   std::shared_ptr<flightforge::SimulatorClient> ff_sim_;
 
+  // own connection, so a Step never delays the pose stream
+  std::shared_ptr<flightforge::SimulatorClient>          ff_pose_sim_;
   std::vector<std::shared_ptr<flightforge::RobotClient>> ff_robots_;
 
   std::mutex mutex_flightforge_;
 
-  flightforge::Coordinates ff_world_origin_;
-
-  std::vector<flightforge::Coordinates> ff_world_origins_;
-
-
   void updateUnrealPoses(const bool teleport_without_collision);
 
-  flightforge::Coordinates position2ue(const Eigen::Vector3d& pos, const flightforge::Coordinates& ff_world_origin);
+  flightforge::RobotState robotState(size_t uav);
 
   void checkForCrash(void);
 
@@ -265,7 +260,6 @@ private:
   int                      flightforge_forest_density_     = 5;
   int                      flightforge_forest_hilly_level_ = 3;
   std::string              weather_type_;
-  flightforge::Daytime  daytime_;
   bool                     uavs_mutual_visibility_ = true;
   std::vector<std::string> uav_names;
 
@@ -286,7 +280,6 @@ private:
     bool   dynamic_rtf     = false;
     bool   paused          = false;
 
-    // TODO load collisions params
     // TODO implement mutual collisions
     bool   collisions_enabled  = false;
     bool   collisions_crash    = false;
@@ -313,52 +306,20 @@ FlightforgeSimulator::FlightforgeSimulator(rclcpp::NodeOptions options) : Node("
 
 //}
 
-/* op compatibility //{ */
+/* enumByName() //{ */
 
-static const std::vector<std::string> kGameModeOps = {"get_api_version",  "get_time",           "get_fps",
-                                                      "get_world_origin", "switch_world_level", "spawn_drone_at_location",
-                                                      "set_weather",      "set_daytime",        "set_graphics_settings",
-                                                      "set_forest_density", "set_forest_hilly_level", "set_mutual_visibility",
-                                                      "set_time_dilation",  "set_fixed_timestep",     "set_lockstep",
-                                                      "step",               "set_camera_capture_mode",
-                                                      "spawn_objects_from_yaml", "remove_spawned_object",
-                                                      "load_library"};
+template <typename E, size_t N>
+static std::optional<E> enumByName(const E (&values)[N], const char* (*name_of)(E), std::string name) {
 
-static const std::vector<std::string> kDroneOps = {"set_location_and_rotation_async", "get_crash_state",           "add_sensor",
-                                                   "get_camera_info",                 "set_rgb_camera_config",     "set_stereo_camera_config",
-                                                   "set_fisheye_camera_config",       "set_event_camera_config",   "set_lidar_config",
-                                                   "get_rgb_camera_data",             "get_rgb_seg_camera_data",   "get_stereo_camera_data",
-                                                   "get_fisheye_camera_data",         "get_depth_camera_data",     "get_instance_seg_data",
-                                                   "get_instance_seg_map",            "get_event_camera_data",     "get_lidar_scan",
-                                                   "get_rangefinder_data",            "add_device",                "list_devices",
-                                                   "get_rgb_camera_config",           "get_stereo_camera_config",  "get_fisheye_camera_config",
-                                                   "get_lidar_config"};
+  std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return std::toupper(c); });
 
-static bool checkOpCompatibility(flightforge::SocketClient& client, const std::vector<std::string>& ops, const std::string& who,
-                                 const rclcpp::Logger& logger) {
-
-  // Incompatibilities() skips names the local registry lacks, so a typo here would pass silently
-  const auto local_ops = Serializable::Schema::BuildMetaResponse().ops_;
-  for (const auto& op : ops) {
-    if (std::none_of(local_ops.begin(), local_ops.end(), [&](const auto& m) { return m.name_ == op; })) {
-      RCLCPP_ERROR(logger, "%s: op '%s' is not in the connector's registry, fix the op list in this node", who.c_str(), op.c_str());
-      return false;
+  for (const E value : values) {
+    if (name == name_of(value)) {
+      return value;
     }
   }
 
-  const auto [answered, problems] = client.CheckCompatibility(ops);
-
-  if (answered && problems.empty()) {
-    return true;
-  }
-
-  RCLCPP_ERROR(logger, "%s: the simulator does not serve %zu op(s) this node needs:", who.c_str(), problems.size());
-  for (const auto& problem : problems) {
-    RCLCPP_ERROR(logger, "    %s", problem.c_str());
-  }
-  RCLCPP_ERROR(logger, "%s: update either the simulator binary or this package so they agree", who.c_str());
-
-  return false;
+  return std::nullopt;
 }
 
 //}
@@ -417,7 +378,7 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "simulation_rate", _simulation_rate_);
   param_loader.loadParam(yaml_prefix + "clock_rate", _clock_rate_);
   param_loader.loadParam(yaml_prefix + "simulator_ip", _simulator_ip_);
-  param_loader.loadParam(yaml_prefix + "simulator_port", _simulator_port_, 8551);
+  param_loader.loadParam(yaml_prefix + "simulator_port", _simulator_port_, int(flightforge::Connection::kDefaultPort));
 
   if (_simulator_ip_.empty()) {
     RCLCPP_ERROR(node_->get_logger(), "simulator_ip parameter is empty!");
@@ -445,8 +406,6 @@ void FlightforgeSimulator::timerInit() {
   dynparam_mgr_->register_param(yaml_prefix + "dynamic_rtf", &drs_params_.dynamic_rtf);
 
   dynparam_mgr_->register_param(yaml_prefix + "collisions/enabled", &drs_params_.collisions_enabled);
-
-  dynparam_mgr_->register_param(yaml_prefix + "collisions/crash", &drs_params_.collisions_crash);
 
   dynparam_mgr_->register_param(yaml_prefix + "collisions/crash", &drs_params_.collisions_crash);
 
@@ -564,78 +523,71 @@ void FlightforgeSimulator::timerInit() {
 
   // | ----------- initialize the FlightForge connector ---------- |
 
-  ff_sim_ = std::make_shared<flightforge::SimulatorClient>(_simulator_ip_, _simulator_port_);
+  const auto weather  = enumByName(flightforge::wire::EnumValuesWeather(), flightforge::wire::EnumNameWeather, weather_type_);
+  const auto graphics = enumByName(flightforge::wire::EnumValuesGraphicsQuality(), flightforge::wire::EnumNameGraphicsQuality, flightforge_graphics_settings_enum_);
 
-  while (rclcpp::ok()) {
-
-    if (ff_sim_->Connect()) {
-      break;
-    }
-
-    RCLCPP_ERROR(node_->get_logger(), "[FlightforgeSimulator]: Error connecting to Unreal's game mode controller");
-
-    std::this_thread::sleep_for(1s);
-  }
-
-  auto [res, api_version]                     = ff_sim_->GetApiVersion();
-  auto [api_version_major, api_version_minor] = api_version;
-
-  if (res) {
-    RCLCPP_INFO(node_->get_logger(), "FlightForge API %d.%d (ROS side built against %d.%d)", api_version_major, api_version_minor, API_VERSION_MAJOR,
-                API_VERSION_MINOR);
-  }
-
-  if (!checkOpCompatibility(*ff_sim_, kGameModeOps, "game mode", node_->get_logger())) {
+  if (!weather || !graphics) {
+    RCLCPP_ERROR(node_->get_logger(), "unknown %s '%s'", weather ? "graphics_settings" : "weather_type",
+                 weather ? flightforge_graphics_settings_enum_.c_str() : weather_type_.c_str());
     rclcpp::shutdown();
-    return;
+    exit(1);
   }
 
   const auto& name_to_level = flightforge::WorldName::Name2Level();
-  const auto  it            = name_to_level.find(flightforge_world_level_name_enum_);
-  if (it == name_to_level.end()) {
-    std::string error_msg = "Unknown world_name: '" + flightforge_world_level_name_enum_ + "'. Available worlds: ";
+  const auto  level         = name_to_level.find(flightforge_world_level_name_enum_);
+
+  if (level == name_to_level.end()) {
+    std::string known;
     for (const auto& pair : name_to_level) {
-      error_msg += "'" + pair.first + "' ";
+      known += " " + pair.first;
     }
-    throw std::invalid_argument(error_msg);
-  }
-  res = ff_sim_->SwitchWorldLevel(it->second);
-
-  if (res) {
-    RCLCPP_INFO(node_->get_logger(), "World was switched succesfully.");
-  } else {
-    RCLCPP_ERROR(node_->get_logger(), "World was not switched succesfully");
+    RCLCPP_ERROR(node_->get_logger(), "unknown world_name '%s', the known worlds are:%s", flightforge_world_level_name_enum_.c_str(), known.c_str());
+    rclcpp::shutdown();
+    exit(1);
   }
 
-  res = ff_sim_->Disconnect();
-  if (res) {
-    RCLCPP_INFO(node_->get_logger(), "ff_sim_ was Disconnected succesfully.");
-  } else {
-    RCLCPP_ERROR(node_->get_logger(), "ff_sim_ was not Disconnected succesfully.");
-  }
+  ff_sim_ = std::make_shared<flightforge::SimulatorClient>(_simulator_ip_, _simulator_port_);
 
-  std::this_thread::sleep_for(std::chrono::seconds(5));
-
-  while (true) {
-    bool connect_result = ff_sim_->Connect();
-    if (connect_result != 1) {
-      RCLCPP_ERROR(node_->get_logger(), "Error connecting to Unreal's game mode controller, connect_result was %d", connect_result);
-    } else {
-      break;
-    }
-    /* TODO: This should be probably shomehow be dynamic and set to a machine/world combo */
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+  while (rclcpp::ok() && !ff_sim_->Connect()) {
+    RCLCPP_ERROR(node_->get_logger(), "could not connect to FlightForge at %s:%d", _simulator_ip_.c_str(), _simulator_port_);
+    std::this_thread::sleep_for(1s);
   }
 
   {
-    double applied;
+    const auto info = ff_sim_->GetInfo();
 
+    if (!info || info->major != flightforge::SimulatorClient::kApiMajor) {
+      const std::string theirs = info ? std::to_string(info->major) + "." + std::to_string(info->minor) : "unknown (" + info.error + ")";
+      RCLCPP_ERROR(node_->get_logger(), "FlightForge API %s, this node speaks %d.%d; update either the simulator or this package so they agree",
+                   theirs.c_str(), flightforge::SimulatorClient::kApiMajor, flightforge::SimulatorClient::kApiMinor);
+      rclcpp::shutdown();
+      exit(1);
+    }
+
+    RCLCPP_INFO(node_->get_logger(), "FlightForge API %d.%d (this node %d.%d)", info->major, info->minor, flightforge::SimulatorClient::kApiMajor,
+                flightforge::SimulatorClient::kApiMinor);
+  }
+
+  if (const auto switched = ff_sim_->SwitchWorld(level->second)) {
+    RCLCPP_INFO(node_->get_logger(), "switched to world '%s'", level->second.c_str());
+  } else {
+    RCLCPP_ERROR(node_->get_logger(), "could not switch to world '%s': %s", level->second.c_str(), switched.error.c_str());
+  }
+
+  {
     // a node that died in lockstep leaves the world paused, and a loading level does not answer yet
-    bool reset = false;
+    const auto wait_from = std::chrono::steady_clock::now();
+    bool       reset     = false;
 
-    for (int attempt = 0; attempt < 30 && !reset && rclcpp::ok(); attempt++) {
-      reset = ff_sim_->SetLockstep(false) && ff_sim_->SetFixedTimestep(0.0, 0.0, applied) &&
-              ff_sim_->SetCameraCaptureMode(lockstep_ ? flightforge::CAPTURE_ON_DEMAND : flightforge::CAPTURE_ALL_FRAMES);
+    while (!reset && rclcpp::ok() && std::chrono::steady_clock::now() - wait_from < 15min) {
+
+      reset = ff_sim_->SetLockstep(false) && ff_sim_->SetFixedTimestep(0.0) &&
+              ff_sim_->SetCaptureMode(lockstep_ ? flightforge::wire::CaptureMode::ON_DEMAND : flightforge::wire::CaptureMode::ALL_FRAMES);
+
+      if (!reset) {
+        RCLCPP_INFO_THROTTLE(node_->get_logger(), *wall_clock_, 10000, "waiting for the world to load");
+        std::this_thread::sleep_for(1s);
+      }
     }
 
     if (!reset) {
@@ -645,66 +597,37 @@ void FlightforgeSimulator::timerInit() {
     }
   }
 
-  res = ff_sim_->SetGraphicsSettings(flightforge::GraphicsSettings::Name2Id().at(flightforge_graphics_settings_enum_));
+  const auto report = [this](const flightforge::Status& status, const std::string& what) {
+    if (status) {
+      RCLCPP_INFO(node_->get_logger(), "%s", what.c_str());
+    } else {
+      RCLCPP_ERROR(node_->get_logger(), "could not %s: %s", what.c_str(), status.error.c_str());
+    }
+  };
 
-  if (res) {
-    RCLCPP_INFO(node_->get_logger(), "Graphical Settings was set succesfully to '%s'", flightforge_graphics_settings_enum_.c_str());
-  } else {
-    RCLCPP_ERROR(node_->get_logger(), "Graphical Settings was set succesfully to '%s'", flightforge_graphics_settings_enum_.c_str());
-  }
-
-  res = ff_sim_->SetMutualDroneVisibility(uavs_mutual_visibility_);
-
-  if (res) {
-    RCLCPP_INFO(node_->get_logger(), "Mutual Drone Visibility was succesfully set to true");
-  } else {
-    RCLCPP_ERROR(node_->get_logger(), "Set Mutual Drone Visibility was NOT succesfull.");
-  }
-
-  res = ff_sim_->SetWeather(flightforge::WeatherType::Type2Id().at(weather_type_));
-
-  if (res) {
-    RCLCPP_INFO(node_->get_logger(), "SetWeather successful.");
-  } else {
-    RCLCPP_ERROR(node_->get_logger(), "SetWeather error");
-  }
-
-  res = ff_sim_->SetDatetime(daytime_hour_, daytime_minute_);
-
-  if (res) {
-    RCLCPP_INFO(node_->get_logger(), "Setdaytime successful.");
-  } else {
-    RCLCPP_ERROR(node_->get_logger(), "Setdaytime error");
-  }
+  report(ff_sim_->SetGraphicsSettings(*graphics), "set the graphics to " + flightforge_graphics_settings_enum_);
+  report(ff_sim_->SetMutualVisibility(uavs_mutual_visibility_), std::string("set the mutual visibility to ") + (uavs_mutual_visibility_ ? "true" : "false"));
+  report(ff_sim_->SetWeather(*weather), "set the weather to " + weather_type_);
+  char daytime[8];
+  std::snprintf(daytime, sizeof(daytime), "%02d:%02d", daytime_hour_ % 100, daytime_minute_ % 100);
+  report(ff_sim_->SetDaytime(daytime_hour_, daytime_minute_), std::string("set the daytime to ") + daytime);
 
   if (flightforge_world_level_name_enum_ == "infinite_forest") {
-
-    if (ff_sim_->SetForestDensity(flightforge_forest_density_)) {
-      RCLCPP_INFO(node_->get_logger(), "Forest density set to %d", flightforge_forest_density_);
-    } else {
-      RCLCPP_ERROR(node_->get_logger(), "Failed to set the forest density to %d", flightforge_forest_density_);
-    }
-
-    if (ff_sim_->SetForestHillyLevel(flightforge_forest_hilly_level_)) {
-      RCLCPP_INFO(node_->get_logger(), "Forest hilly level set to %d", flightforge_forest_hilly_level_);
-    } else {
-      RCLCPP_ERROR(node_->get_logger(), "Failed to set the forest hilly level to %d", flightforge_forest_hilly_level_);
-    }
+    report(ff_sim_->SetForestDensity(flightforge_forest_density_), "set the forest density to " + std::to_string(flightforge_forest_density_));
+    report(ff_sim_->SetForestHillyLevel(flightforge_forest_hilly_level_), "set the forest hilly level to " + std::to_string(flightforge_forest_hilly_level_));
   }
 
   for (const auto& library : libraries) {
 
-    std::string error;
-
-    const auto [loaded, count] = ff_sim_->LoadLibrary(library, error);
+    const auto loaded = ff_sim_->LoadLibrary(library);
 
     if (!loaded) {
-      RCLCPP_ERROR(node_->get_logger(), "could not load library %s: %s", library.c_str(), error.c_str());
+      RCLCPP_ERROR(node_->get_logger(), "could not load library %s: %s", library.c_str(), loaded.error.c_str());
       rclcpp::shutdown();
       exit(1);
     }
 
-    RCLCPP_INFO(node_->get_logger(), "loaded %d objects from %s", count, library.c_str());
+    RCLCPP_INFO(node_->get_logger(), "loaded %d objects from %s", *loaded, library.c_str());
   }
 
   if (!scene_files.empty()) {
@@ -725,98 +648,59 @@ void FlightforgeSimulator::timerInit() {
         exit(1);
       }
 
-      std::string error;
-
-      const auto [placed, ids] = ff_sim_->SpawnObjectsFromYaml(document, error);
+      const auto placed = ff_sim_->SpawnObjectsFromYaml(document);
 
       if (!placed) {
-        RCLCPP_ERROR(node_->get_logger(), "could not place scene %s: %s", file.c_str(), error.c_str());
+        RCLCPP_ERROR(node_->get_logger(), "could not place scene %s: %s", file.c_str(), placed.error.c_str());
         rclcpp::shutdown();
         exit(1);
       }
 
-      if (!error.empty()) {
-        RCLCPP_WARN(node_->get_logger(), "scene %s: %s", file.c_str(), error.c_str());
-      }
-
-      RCLCPP_INFO(node_->get_logger(), "placed %zu objects from %s", ids.size(), file.c_str());
+      RCLCPP_INFO(node_->get_logger(), "placed %zu objects from %s", placed->size(), file.c_str());
     }
   }
 
   // | --------------------- Spawn the UAVs in FlightForge --------------------- |
 
-  const auto [result, world_origin] = ff_sim_->GetWorldOrigin();
+  ff_pose_sim_ = std::make_shared<flightforge::SimulatorClient>(_simulator_ip_, _simulator_port_);
 
-  if (!result) {
-    RCLCPP_ERROR(node_->get_logger(), "getting world origin");
+  if (!ff_pose_sim_->Connect(3)) {
+    RCLCPP_ERROR(node_->get_logger(), "could not open the pose connection to FlightForge");
     rclcpp::shutdown();
-  } else {
-    ff_world_origin_ = world_origin;
+    exit(1);
+  }
+
+  // robots outlive the node too
+  if (const auto robots = ff_sim_->ListRobots()) {
+    for (const auto& robot : *robots) {
+      if (std::find(uav_names.begin(), uav_names.end(), robot.label) != uav_names.end()) {
+        RCLCPP_INFO(node_->get_logger(), "removing %s left by a previous run", robot.label.c_str());
+        ff_sim_->RemoveRobot(robot.id);
+      }
+    }
   }
 
   for (size_t i = 0; i < uav_names.size(); i++) {
 
     const std::string uav_name = uav_names[i];
+    const std::string frame    = "x500";
 
-    mrs_multirotor_simulator::MultirotorModel::State uav_state = uavs_[i]->getState();
+    const flightforge::RobotState state = robotState(i);
 
-    flightforge::Coordinates pos = position2ue(uav_state.x, ff_world_origin_);
+    RCLCPP_INFO(node_->get_logger(), "spawning %s, a %s, at [%.2f, %.2f, %.2f]", uav_name.c_str(), frame.c_str(), state.base->position.x, state.base->position.y,
+                state.base->position.z);
 
-    RCLCPP_INFO(node_->get_logger(), "%s spawning at [%.2lf, %.2lf, %.2lf] ...", uav_name.c_str(), uav_state.x(0), uav_state.x(1), uav_state.x(2));
+    const auto spawned = ff_sim_->SpawnRobot(frame, *state.base, uav_name);
 
-    std::string uav_frame = "x500";
-    /* TODO: frame param */
-    /* param_loader.loadParam(uav_names[i] + "/frame", uav_frame); */
-
-    RCLCPP_INFO(node_->get_logger(), "Frame type to spawn is %s", uav_frame.c_str());
-
-    const auto& known_frames = flightforge::UavFrameType::KnownNames();
-    if (std::find(known_frames.begin(), known_frames.end(), uav_frame) == known_frames.end()) {
-      RCLCPP_WARN(node_->get_logger(), "Frame '%s' is not a packed mesh; the simulator will look for a .glb of that name", uav_frame.c_str());
-    }
-
-    auto [resSpawn, port] = ff_sim_->SpawnDroneAtLocation(pos, uav_frame);
-
-    if (!resSpawn) {
-      RCLCPP_ERROR(node_->get_logger(), "failed to spawn %s", uav_names[i].c_str());
+    if (!spawned) {
+      RCLCPP_ERROR(node_->get_logger(), "could not spawn %s: %s", uav_name.c_str(), spawned.error.c_str());
       rclcpp::shutdown();
+      exit(1);
     }
 
-    RCLCPP_INFO(node_->get_logger(), "%s spawned", uav_name.c_str());
+    RCLCPP_INFO(node_->get_logger(), "%s is robot %d", uav_name.c_str(), *spawned);
 
-    std::shared_ptr<flightforge::RobotClient> robot = std::make_shared<flightforge::RobotClient>(_simulator_ip_, port);
-
-    ff_robots_.push_back(robot);
-    drone_ports_.push_back(port);
-
-    auto connect_result = robot->Connect();
-
-    if (connect_result != 1) {
-
-      RCLCPP_ERROR(node_->get_logger(), "%s - Error connecting to drone controller, connect_result was %d", uav_name.c_str(), connect_result);
-      rclcpp::shutdown();
-
-    } else {
-      RCLCPP_INFO(node_->get_logger(), "%s - Connection succeed: %d", uav_name.c_str(), connect_result);
-
-      if (!checkOpCompatibility(*robot, kDroneOps, uav_name, node_->get_logger())) {
-        rclcpp::shutdown();
-        return;
-      }
-
-      // ROS_INFO("[UnrealSimulator]: wait until UAV fall on the ground ... && uptade their world origin");
-
-      // std::this_thread::sleep_for(std::chrono::seconds(3));
-
-      // const auto [res, location] = robot->GetLocation();
-
-      // if (!res) {
-      //   ROS_ERROR("[UnrealSimulator]: %s - DroneError: getting location", uav_name.c_str());
-      //   ros::shutdown();
-      // } else {
-      //   ff_world_origins_.push_back(location);
-      // }
-    }
+    ff_robots_.push_back(std::make_shared<flightforge::RobotClient>(ff_pose_sim_->SharedConnection(), *spawned));
 
     setupSensors(i);
   }
@@ -850,18 +734,13 @@ void FlightforgeSimulator::timerInit() {
 
   scope_timer_logger_ = std::make_shared<mrs_lib::ScopeTimerLogger>(node_, "", false);
 
-  // | -------------------- finishing methods ------------------- |
-
   // | ------------------------ time model ---------------------- |
 
   if (lockstep_) {
 
-    double applied;
-
     lockstep_stride_ = lockstepStride(_simulation_rate_, highest_rate_);
 
-    if (!ff_sim_->SetTimeDilation(1.0, applied) || !ff_sim_->SetFixedTimestep(lockstep_stride_ / _simulation_rate_, 0.0, applied) ||
-        !ff_sim_->SetLockstep(true)) {
+    if (!ff_sim_->SetTimeDilation(1.0) || !ff_sim_->SetFixedTimestep(lockstep_stride_ / _simulation_rate_) || !ff_sim_->SetLockstep(true)) {
       RCLCPP_ERROR(node_->get_logger(), "could not enter lockstep");
       rclcpp::shutdown();
       exit(1);
@@ -881,13 +760,9 @@ void FlightforgeSimulator::timerInit() {
   RCLCPP_INFO(node_->get_logger(), "initialized");
 
   timer_init_->cancel();
-
-  // test that the node is actually the one I am editing
-  /* kill the node */
-  /* rclcpp::shutdown(); */
 }
 
-//}//}
+//}
 
 /* timerMain() //{ */
 
@@ -952,24 +827,21 @@ void FlightforgeSimulator::timerMain() {
     last_step_wall_time_ = now_wall;
   }
 
-  //debug print RCLCPP_INFO_THROTTLED
-
-  RCLCPP_INFO_THROTTLE(node_->get_logger(), *clock_, 5000, "Before crash check");
-
-
-  checkForCrash();
-  // step the sim
   {
     const double dt_since_last_step = (sim_time - last_step_time_).seconds();
 
     // ticks are whole nanoseconds, so three 300 Hz ticks fall a hair short of 10 ms
     if (dt_since_last_step >= simulation_step_size - 0.5 * clock_step_size) {
 
-      for (size_t i = 0; i < uavs_.size(); i++) {
+      const auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
 
+      if (drs_params.collisions_enabled && drs_params.collisions_crash) {
+        checkForCrash();
+      }
+
+      for (size_t i = 0; i < uavs_.size(); i++) {
         if (!uavs_[i]->hasCrashed()) {
           uavs_.at(i)->makeStep(dt_since_last_step, sim_time.seconds());
-
         }
       }
 
@@ -1016,14 +888,14 @@ void FlightforgeSimulator::timerStatus() {
   {
     std::scoped_lock lock(mutex_flightforge_);
 
-    bool res;
+    const auto got = ff_sim_->GetFps();
 
-    std::tie(res, fps) = ff_sim_->GetFps();
-
-    if (!res) {
-      RCLCPP_ERROR(node_->get_logger(), "Failed to get the FPS from FlightForge");
+    if (!got) {
+      RCLCPP_ERROR(node_->get_logger(), "Failed to get the FPS from FlightForge: %s", got.error.c_str());
       return;
     }
+
+    fps = *got;
   }
 
   const double fps_filter_const = 0.9;
@@ -1049,10 +921,8 @@ void FlightforgeSimulator::timerStatus() {
 
     std::scoped_lock lock(mutex_flightforge_);
 
-    double applied;
-
-    if (ff_sim_->SetTimeDilation(desired_rtf, applied)) {
-      flightforge_time_dilation_ = applied;
+    if (const auto applied = ff_sim_->SetTimeDilation(desired_rtf)) {
+      flightforge_time_dilation_ = *applied;
     } else {
       RCLCPP_ERROR(node_->get_logger(), "Failed to set the FlightForge time dilation to %.3f", desired_rtf);
     }
@@ -1094,48 +964,40 @@ void FlightforgeSimulator::timerTimeSync() {
 
   auto wall_time_offset = mrs_lib::get_mutexed(mutex_wall_time_offset_, wall_time_offset_);
 
-  bool   res;
-  double flightforge_time;
-  double sync_start;
-  double sync_end;
-
-  bool   res_ue;
-  double ue_world_time;
-  double ue_dilation;
-  double ue_sync_start;
-  double ue_sync_end;
+  flightforge::Expected<flightforge::TimeInfo> time;
+  double                                       sync_start;
+  double                                       sync_end;
 
   // stamped inside the lock, so waiting for it is not mistaken for round trip
   {
     std::scoped_lock lock(mutex_flightforge_);
 
-    sync_start                      = wall_clock_->now().seconds();
-    std::tie(res, flightforge_time) = ff_sim_->GetTime();
-    sync_end                        = wall_clock_->now().seconds();
-
-    ue_sync_start = wall_clock_->now().seconds();
-    res_ue        = ff_sim_->GetSimTime(ue_world_time, ue_dilation);
-    ue_sync_end   = wall_clock_->now().seconds();
+    sync_start = wall_clock_->now().seconds();
+    time       = ff_sim_->GetTime();
+    sync_end   = wall_clock_->now().seconds();
   }
 
-  if (res_ue && !lockstep_) {
+  if (!time) {
+    RCLCPP_ERROR(node_->get_logger(), "Failed to get FlightForge's time: %s", time.error.c_str());
+    rclcpp::shutdown();
+    return;
+  }
+
+  if (!lockstep_) {
 
     auto [sim_now, sim_now_wall] = mrs_lib::get_mutexed(mutex_sim_time_, sim_time_, sim_time_wall_);
     auto actual_rtf              = mrs_lib::get_mutexed(mutex_actual_rtf_, actual_rtf_);
 
-    const double ros_at_sample = sim_now.seconds() + ((ue_sync_start + ue_sync_end) / 2.0 - sim_now_wall) * actual_rtf;
+    const double ros_at_sample = sim_now.seconds() + ((sync_start + sync_end) / 2.0 - sim_now_wall) * actual_rtf;
 
     std::scoped_lock lock(mutex_wall_time_offset_);
 
     // round-trip jitter would otherwise step event stamps back
-    ue_world_offset_ = ue_world_offset_valid_ ? 0.9 * ue_world_offset_ + 0.1 * (ros_at_sample - ue_world_time) : ros_at_sample - ue_world_time;
+    ue_world_offset_ = ue_world_offset_valid_ ? 0.9 * ue_world_offset_ + 0.1 * (ros_at_sample - time->sim_time) : ros_at_sample - time->sim_time;
     ue_world_offset_valid_ = true;
   }
 
-  if (!res) {
-    RCLCPP_ERROR(node_->get_logger(), "Failed to get FlightForge's time");
-    rclcpp::shutdown();
-  }
+  const double flightforge_time = time->wall_time;
 
   const double true_flightforge_time = flightforge_time - (sync_end - sync_start) / 2.0;
 
@@ -1253,48 +1115,48 @@ void FlightforgeSimulator::publishPoses(void) {
 
 //}
 
+/* robotState() //{ */
+
+flightforge::RobotState FlightforgeSimulator::robotState(size_t uav) {
+
+  const auto               state = uavs_[uav]->getState();
+  const Eigen::Quaterniond q(state.R);
+
+  flightforge::RobotState out;
+
+  out.base                  = flightforge::Pose{flightforge::Vec3{state.x(0), state.x(1), state.x(2)}, flightforge::Quat{q.x(), q.y(), q.z(), q.w()}};
+  out.base_linear_velocity  = flightforge::Vec3{state.v(0), state.v(1), state.v(2)};
+  out.base_angular_velocity = flightforge::Vec3{state.omega(0), state.omega(1), state.omega(2)};
+
+  return out;
+}
+
+//}
+
 /* updateUnrealPoses() //{ */
 
 void FlightforgeSimulator::updateUnrealPoses(const bool teleport_without_collision) {
 
-  // | ------------ set each UAV's position in unreal ----------- |
+  const bool collide = !teleport_without_collision && mrs_lib::get_mutexed(mutex_drs_params_, drs_params_).collisions_enabled;
 
-  {
-    std::scoped_lock lock(mutex_flightforge_);
+  if (ff_robots_.size() == 1) {
 
-    for (size_t i = 0; i < uavs_.size(); i++) {
-
-      mrs_multirotor_simulator::MultirotorModel::State state = uavs_[i]->getState();
-
-      auto [roll, pitch, yaw] = mrs_lib::AttitudeConverter(state.R).getExtrinsicRPY();
-
-      flightforge::Coordinates pos;
-
-      pos = position2ue(state.x, ff_world_origin_);
-
-      flightforge::Rotation rot;
-      rot.pitch = 180.0 * (-pitch / M_PI);
-      rot.roll  = 180.0 * (roll / M_PI);
-      rot.yaw   = 180.0 * (-yaw / M_PI);
-
-      ff_robots_[i]->SetLocationAndRotationAsync(pos, rot, !teleport_without_collision && _collisions_);
+    if (const auto sent = ff_robots_[0]->SetStateAsync(robotState(0), collide); !sent) {
+      RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "could not send the pose of %s: %s", uav_names[0].c_str(), sent.error.c_str());
     }
+
+    return;
   }
-}
-//}
 
-/* position2ue() //{ */
+  std::vector<std::pair<int, flightforge::RobotState>> states;
 
-flightforge::Coordinates FlightforgeSimulator::position2ue(const Eigen::Vector3d& pos, const flightforge::Coordinates& ff_world_origin) {
-  flightforge::Coordinates pos_ue;
+  for (size_t i = 0; i < ff_robots_.size(); i++) {
+    states.emplace_back(ff_robots_[i]->Id(), robotState(i));
+  }
 
-  float PlayerStartOffset = 92.12;
-
-  pos_ue.x = ff_world_origin.x + pos.x() * 100.0;
-  pos_ue.y = ff_world_origin.y - pos.y() * 100.0;
-  pos_ue.z = ff_world_origin.z + pos.z() * 100.0 - PlayerStartOffset;
-
-  return pos_ue;
+  if (const auto sent = ff_pose_sim_->SetStates(states, collide, false); !sent) {
+    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "could not send the UAV poses: %s", sent.error.c_str());
+  }
 }
 
 //}
@@ -1303,23 +1165,24 @@ flightforge::Coordinates FlightforgeSimulator::position2ue(const Eigen::Vector3d
 
 void FlightforgeSimulator::checkForCrash(void) {
 
-  // | ------------ set each UAV's position in unreal ----------- |
+  for (size_t i = 0; i < ff_robots_.size(); i++) {
 
-  {
-    std::scoped_lock lock(mutex_flightforge_);
+    if (uavs_[i]->hasCrashed()) {
+      continue;
+    }
 
-    for (size_t i = 0; i < uavs_.size(); i++) {
+    const auto collision = ff_robots_[i]->GetCollision();
 
-      auto [res, crashed] = ff_robots_[i]->GetCrashState();
+    if (!collision) {
+      RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "could not get the collision state of %s: %s", uav_names[i].c_str(),
+                            collision.error.c_str());
+      continue;
+    }
 
-      if (!res) {
-        RCLCPP_ERROR_THROTTLE(node_->get_logger(), *clock_, 1000, "Failed to obtain crash state for uav%lu", i + 1);
-      }
-
-      if (res && crashed && !uavs_[i]->hasCrashed()) {
-        RCLCPP_WARN_THROTTLE(node_->get_logger(), *clock_, 1000, "Uav%lu crashed", i + 1);
-        uavs_[i]->crash();
-      }
+    if (collision->collided) {
+      RCLCPP_WARN(node_->get_logger(), "%s crashed at [%.2f, %.2f, %.2f]", uav_names[i].c_str(), collision->impact_point.x, collision->impact_point.y,
+                  collision->impact_point.z);
+      uavs_[i]->crash();
     }
   }
 }
@@ -1405,15 +1268,10 @@ void FlightforgeSimulator::failSetup(size_t uav, const std::string& what) {
 
 std::shared_ptr<flightforge::RobotClient> FlightforgeSimulator::connectSensor(size_t uav, const std::string& name) {
 
-  auto c = std::make_shared<flightforge::RobotClient>(_simulator_ip_, drone_ports_[uav]);
+  auto c = std::make_shared<flightforge::RobotClient>(_simulator_ip_, _simulator_port_, ff_robots_[uav]->Id());
 
-  if (c->Connect() != 1) {
+  if (!c->Connect(3)) {
     failSetup(uav, "could not open a connection for " + name);
-  }
-
-  // a lockstep frame takes as long as the GPU needs
-  if (lockstep_) {
-    c->SetReceiveTimeoutMs(10000);
   }
 
   return c;
@@ -1423,15 +1281,15 @@ std::shared_ptr<flightforge::RobotClient> FlightforgeSimulator::connectSensor(si
 
 /* calibration() //{ */
 
-std::vector<Serializable::Drone::CameraInfo> FlightforgeSimulator::calibration(size_t uav, int id, const std::string& name) {
+std::vector<flightforge::wire::CameraInfoT> FlightforgeSimulator::calibration(size_t uav, int id, const std::string& name) {
 
-  const auto [ok, infos] = ff_robots_[uav]->GetCameraInfo(id);
+  auto infos = ff_robots_[uav]->GetCameraInfo(id);
 
-  if (!ok || infos.empty()) {
-    failSetup(uav, "no camera info for " + name);
+  if (!infos || infos->empty()) {
+    failSetup(uav, "no camera info for " + name + (infos ? "" : ": " + infos.error));
   }
 
-  return infos;
+  return std::move(*infos);
 }
 
 //}
@@ -1457,7 +1315,7 @@ void FlightforgeSimulator::registerCamera(size_t uav, CameraSensor s, const std:
   s.ph_image = it_->advertise(topic + "image_raw", 1);
   s.ph_info  = mrs_lib::PublisherHandler<sensor_msgs::msg::CameraInfo>(node_, topic + "camera_info");
 
-  if (s.type == flightforge::SENSOR_INSTANCE_SEG_CAMERA) {
+  if (s.type == flightforge::wire::SensorType::INSTANCE_SEG_CAMERA) {
     mrs_lib::PublisherHandlerOptions latched(node_);
     latched.qos = rclcpp::QoS(1).transient_local();
     s.ph_map    = mrs_lib::PublisherHandler<mrs_uav_flightforge_simulator::msg::InstanceMap>(latched, topic + "labels");
@@ -1495,8 +1353,8 @@ void FlightforgeSimulator::registerStereo(size_t uav, StereoSensor s, const std:
   s.connector = connectSensor(uav, s.name);
 
   const auto  infos      = calibration(uav, s.id, s.name);
-  const auto* left_info  = findEye(infos, 0);
-  const auto* right_info = findEye(infos, 1);
+  const auto* left_info  = findEye(infos, flightforge::wire::Eye::LEFT);
+  const auto* right_info = findEye(infos, flightforge::wire::Eye::RIGHT);
 
   if (!left_info || !right_info) {
     failSetup(uav, s.name + " did not report both eyes");
@@ -1530,6 +1388,11 @@ void FlightforgeSimulator::registerLidar(size_t uav, LidarSensor s, const std::s
     s.ph_free = mrs_lib::PublisherHandler<sensor_msgs::msg::PointCloud2>(node_, topic + "points_free");
   }
 
+  if (s.params.publish_free && s.params.livox) {
+    RCLCPP_WARN(node_->get_logger(), "%s/%s: a Livox scan is not organised, so its rays without a return have no direction and %spoints_free stays empty",
+                uav_names[uav].c_str(), s.name.c_str(), topic.c_str());
+  }
+
   sendStaticTf(uav_names[uav], s.frame, s.params.mount, false);
 
   lidars_[uav].push_back(std::move(s));
@@ -1541,16 +1404,31 @@ void FlightforgeSimulator::registerLidar(size_t uav, LidarSensor s, const std::s
 
 void FlightforgeSimulator::setupSensors(size_t uav) {
 
+  using flightforge::wire::SensorType;
+
   const std::string uav_name  = uav_names[uav];
   auto&             connector = ff_robots_[uav];
 
-  const auto add = [&](int type, const std::string& name) {
-    const auto [ok, id] = connector->AddSensor(type);
-    if (!ok) {
-      failSetup(uav, "could not add " + name);
+  const auto add = [&](SensorType type, const std::string& name, const std::optional<flightforge::Pose>& pose = std::nullopt) {
+    const auto id = connector->AddSensor(type, pose);
+    if (!id) {
+      failSetup(uav, "could not add " + name + ": " + id.error);
     }
-    return id;
+    return *id;
   };
+
+  const auto configure = [&](auto get, auto set, auto apply, const auto& params, int id, const std::string& name) {
+    auto cfg = ((*connector).*get)(id);
+    if (!cfg) {
+      failSetup(uav, "could not read the config of " + name + ": " + cfg.error);
+    }
+    apply(params, *cfg);
+    if (const auto set_ok = ((*connector).*set)(*cfg, id); !set_ok) {
+      failSetup(uav, "could not configure " + name + ": " + set_ok.error);
+    }
+  };
+
+  using flightforge::RobotClient;
 
   cameras_.emplace_back();
   fisheyes_.emplace_back();
@@ -1561,11 +1439,11 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
 
   // | ------------------------- cameras ------------------------ |
 
-  const std::vector<std::tuple<std::string, int, const std::vector<CameraParams>*>> camera_types = {
-      {"rgb", flightforge::SENSOR_RGB_CAMERA, &sensors_config_.rgb},
-      {"rgb_segmented", flightforge::SENSOR_RGB_SEG_CAMERA, &sensors_config_.rgb_segmented},
-      {"depth", flightforge::SENSOR_DEPTH_CAMERA, &sensors_config_.depth},
-      {"instance_seg", flightforge::SENSOR_INSTANCE_SEG_CAMERA, &sensors_config_.instance_seg}};
+  const std::vector<std::tuple<std::string, SensorType, const std::vector<CameraParams>*>> camera_types = {
+      {"rgb", SensorType::RGB_CAMERA, &sensors_config_.rgb},
+      {"rgb_segmented", SensorType::RGB_SEG_CAMERA, &sensors_config_.rgb_segmented},
+      {"depth", SensorType::DEPTH_CAMERA, &sensors_config_.depth},
+      {"instance_seg", SensorType::INSTANCE_SEG_CAMERA, &sensors_config_.instance_seg}};
 
   for (const auto& [type_name, type, params_list] : camera_types) {
     for (size_t i = 0; i < params_list->size(); i++) {
@@ -1578,23 +1456,7 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
       s.frame  = uav_name + "/" + s.name;
       s.id     = add(type, s.name);
 
-      flightforge::RgbCameraConfig cfg{};
-
-      cfg.width_                  = s.params.width;
-      cfg.height_                 = s.params.height;
-      cfg.fov_                    = s.params.fov;
-      cfg.offset_                 = toUeOffset(s.params.mount);
-      cfg.orientation_            = toUeRotation(s.params.mount);
-      cfg.enable_hdr_             = s.params.enable_hdr;
-      cfg.enable_temporal_aa_     = s.params.enable_temporal_aa;
-      cfg.enable_raytracing_      = s.params.enable_raytracing;
-      cfg.enable_motion_blur_     = s.params.enable_motion_blur;
-      cfg.motion_blur_amount_     = s.params.motion_blur_amount;
-      cfg.motion_blur_distortion_ = s.params.motion_blur_distortion;
-
-      if (!connector->SetRgbCameraConfig(cfg, s.id)) {
-        failSetup(uav, "could not configure " + s.name);
-      }
+      configure(&RobotClient::GetRgbCameraConfig, &RobotClient::SetRgbCameraConfig, applyCameraParams, s.params, s.id, s.name);
 
       const std::string topic = "/" + uav_name + "/" + s.name + "/";
 
@@ -1611,21 +1473,9 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     s.params = sensors_config_.fisheye[i];
     s.name   = "fisheye_" + std::to_string(i);
     s.frame  = uav_name + "/" + s.name;
-    s.id     = add(flightforge::SENSOR_FISHEYE_CAMERA, s.name);
+    s.id     = add(SensorType::FISHEYE_CAMERA, s.name);
 
-    flightforge::FisheyeCameraConfig cfg{};
-
-    cfg.width_       = s.params.width;
-    cfg.height_      = s.params.height;
-    cfg.fov_         = s.params.fov;
-    cfg.lens_model_  = s.params.lens_model;
-    cfg.full_frame_  = s.params.full_frame;
-    cfg.offset_      = toUeOffset(s.params.mount);
-    cfg.orientation_ = toUeRotation(s.params.mount);
-
-    if (!connector->SetFisheyeCameraConfig(cfg, s.id)) {
-      failSetup(uav, "could not configure " + s.name);
-    }
+    configure(&RobotClient::GetFisheyeCameraConfig, &RobotClient::SetFisheyeCameraConfig, applyFisheyeParams, s.params, s.id, s.name);
 
     const std::string topic = "/" + uav_name + "/" + s.name + "/";
 
@@ -1642,42 +1492,14 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     s.name        = "stereo_" + std::to_string(i);
     s.frame_left  = uav_name + "/" + s.name + "_left";
     s.frame_right = uav_name + "/" + s.name + "_right";
-    s.id          = add(flightforge::SENSOR_STEREO_CAMERA, s.name);
+    s.id          = add(SensorType::STEREO_CAMERA, s.name);
 
-    const Mount& m          = s.params.mount;
-    const double half_shift = s.params.baseline / 2.0;
+    configure(&RobotClient::GetStereoCameraConfig, &RobotClient::SetStereoCameraConfig, applyStereoParams, s.params, s.id, s.name);
 
-    Serializable::Drone::StereoCameraConfig cfg{};
+    const auto [left, right] = stereoEyes(s.params.mount, s.params.baseline);
+    const std::string topic  = "/" + uav_name + "/" + s.name + "/";
 
-    cfg.width_  = s.params.width;
-    cfg.height_ = s.params.height;
-    cfg.fov_    = s.params.fov;
-
-    cfg.offset_x_left_  = m.x * 100.0;
-    cfg.offset_y_left_  = -(m.y + half_shift) * 100.0;
-    cfg.offset_z_left_  = m.z * 100.0;
-    cfg.offset_x_right_ = m.x * 100.0;
-    cfg.offset_y_right_ = -(m.y - half_shift) * 100.0;
-    cfg.offset_z_right_ = m.z * 100.0;
-
-    cfg.rotation_pitch_left_  = -m.pitch;
-    cfg.rotation_yaw_left_    = -m.yaw;
-    cfg.rotation_roll_left_   = m.roll;
-    cfg.rotation_pitch_right_ = -m.pitch;
-    cfg.rotation_yaw_right_   = -m.yaw;
-    cfg.rotation_roll_right_  = m.roll;
-
-    cfg.enable_hdr_         = s.params.enable_hdr;
-    cfg.enable_temporal_aa_ = s.params.enable_temporal_aa;
-    cfg.enable_raytracing_  = s.params.enable_raytracing;
-
-    if (!connector->SetStereoCameraConfig(cfg, s.id)) {
-      failSetup(uav, "could not configure " + s.name);
-    }
-
-    const std::string topic = "/" + uav_name + "/" + s.name + "/";
-
-    registerStereo(uav, std::move(s), topic, leftEyeMount(cfg), rightEyeMount(cfg));
+    registerStereo(uav, std::move(s), topic, left, right);
   }
 
   // | ------------------------- events ------------------------- |
@@ -1689,24 +1511,10 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     s.params    = sensors_config_.event[i];
     s.name      = "event_" + std::to_string(i);
     s.frame     = uav_name + "/" + s.name;
-    s.id        = add(flightforge::SENSOR_EVENT_CAMERA, s.name);
+    s.id        = add(SensorType::EVENT_CAMERA, s.name);
     s.connector = connectSensor(uav, s.name);
 
-    flightforge::EventCameraConfig cfg{};
-
-    cfg.width_                  = s.params.width;
-    cfg.height_                 = s.params.height;
-    cfg.fov_                    = s.params.fov;
-    cfg.contrast_threshold_pos_ = s.params.contrast_threshold_pos;
-    cfg.contrast_threshold_neg_ = s.params.contrast_threshold_neg;
-    cfg.max_events_per_frame_   = s.params.max_events_per_frame;
-    cfg.use_sim_time_           = true;
-    cfg.offset_                 = toUeOffset(s.params.mount);
-    cfg.orientation_            = toUeRotation(s.params.mount);
-
-    if (!connector->SetEventCameraConfig(cfg, s.id)) {
-      failSetup(uav, "could not configure " + s.name);
-    }
+    configure(&RobotClient::GetEventCameraConfig, &RobotClient::SetEventCameraConfig, applyEventParams, s.params, s.id, s.name);
 
     s.ph_events = mrs_lib::PublisherHandler<event_camera_msgs::msg::EventPacket>(node_, "/" + uav_name + "/" + s.name + "/events");
 
@@ -1724,28 +1532,9 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     s.params = sensors_config_.lidar[i];
     s.name   = "lidar_" + std::to_string(i);
     s.frame  = uav_name + "/" + s.name;
-    s.id     = add(s.params.livox ? flightforge::SENSOR_LIDAR_LIVOX : flightforge::SENSOR_LIDAR, s.name);
+    s.id     = add(SensorType::LIDAR, s.name);
 
-    flightforge::LidarConfig cfg{};
-
-    cfg.Enable       = true;
-    cfg.showBeams    = false;
-    cfg.beamLength   = s.params.beam_length * 100.0;
-    cfg.BeamHorRays  = s.params.horizontal_rays;
-    cfg.BeamVertRays = s.params.vertical_rays;
-    cfg.Frequency    = s.params.rate;
-    cfg.offset       = toUeOffset(s.params.mount);
-    cfg.orientation  = toUeRotation(s.params.mount);
-    cfg.FOVHorLeft   = s.params.horizontal_fov_left;
-    cfg.FOVHorRight  = s.params.horizontal_fov_right;
-    cfg.FOVVertUp    = s.params.vertical_fov_up;
-    cfg.FOVVertDown  = s.params.vertical_fov_down;
-    cfg.Livox        = s.params.livox;
-    cfg.LivoxSensor  = s.params.livox_sensor;
-
-    if (!connector->SetLidarConfig(cfg, s.id)) {
-      failSetup(uav, "could not configure " + s.name);
-    }
+    configure(&RobotClient::GetLidarConfig, &RobotClient::SetLidarConfig, applyLidarParams, s.params, s.id, s.name);
 
     const std::string topic = "/" + uav_name + "/" + s.name + "/";
 
@@ -1761,7 +1550,7 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
     s.params    = sensors_config_.rangefinder[i];
     s.name      = "rangefinder_" + std::to_string(i);
     s.frame     = uav_name + "/" + s.name;
-    s.id        = add(flightforge::SENSOR_RANGEFINDER, s.name);
+    s.id        = add(SensorType::RANGEFINDER, s.name, rangefinderPose(s.params.mount));
     s.connector = connectSensor(uav, s.name);
     s.ph_range  = mrs_lib::PublisherHandler<sensor_msgs::msg::Range>(node_, "/" + uav_name + "/" + s.name + "/range");
 
@@ -1779,6 +1568,8 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
 
 void FlightforgeSimulator::setupDevices(size_t uav) {
 
+  using flightforge::wire::SensorType;
+
   if (sensors_config_.devices.empty()) {
     return;
   }
@@ -1786,10 +1577,10 @@ void FlightforgeSimulator::setupDevices(size_t uav) {
   const std::string uav_name  = uav_names[uav];
   auto&             connector = ff_robots_[uav];
 
-  const auto [listed, library] = connector->ListDevices();
+  const auto library = connector->ListDevices();
 
-  if (!listed) {
-    failSetup(uav, "could not list the simulator's devices");
+  if (!library) {
+    failSetup(uav, "could not list the simulator's devices: " + library.error);
   }
 
   const auto names = deviceNames(sensors_config_.devices);
@@ -1798,24 +1589,24 @@ void FlightforgeSimulator::setupDevices(size_t uav) {
 
     const DeviceParams& device = sensors_config_.devices[d];
 
-    if (std::none_of(library.begin(), library.end(), [&](const auto& known) { return known.name == device.type; })) {
+    if (std::none_of(library->begin(), library->end(), [&](const auto& known) { return known.name == device.type; })) {
 
       std::string known;
 
-      for (const auto& l : library) {
+      for (const auto& l : *library) {
         known += " " + l.name;
       }
 
       failSetup(uav, "unknown device \"" + device.type + "\", the simulator has:" + known);
     }
 
-    const auto [added, created] = connector->AddDevice(device.type, toUeOffset(device.mount), toUeRotation(device.mount), device.show_mesh);
+    const auto created = connector->AddDevice(device.type, toPose(device.mount), device.show_mesh);
 
-    if (!added) {
-      failSetup(uav, "could not add device " + names[d]);
+    if (!created) {
+      failSetup(uav, "could not add device " + names[d] + ": " + created.error);
     }
 
-    for (const auto& sensor : created) {
+    for (const auto& sensor : *created) {
 
       const auto named = [&](auto& s, const std::string& role) {
         s.id   = sensor.id;
@@ -1823,21 +1614,24 @@ void FlightforgeSimulator::setupDevices(size_t uav) {
         return "/" + uav_name + "/" + s.name + "/";
       };
 
+      const auto read = [&](const auto& cfg, const std::string& role) {
+        if (!cfg) {
+          failSetup(uav, "could not read " + names[d] + "/" + role + ": " + cfg.error);
+        }
+      };
+
       const std::string frame = uav_name + "/" + names[d] + "_";
 
       switch (sensor.type) {
 
-        case flightforge::SENSOR_RGB_CAMERA: {
+        case SensorType::RGB_CAMERA: {
 
-          const auto [ok, cfg] = connector->GetRgbCameraConfig(sensor.id);
-
-          if (!ok) {
-            failSetup(uav, "could not read " + names[d] + "/rgb");
-          }
+          const auto cfg = connector->GetRgbCameraConfig(sensor.id);
+          read(cfg, "rgb");
 
           CameraSensor s;
 
-          s.params = toCameraParams(cfg, device.camera_rate);
+          s.params = toCameraParams(*cfg, device.camera_rate);
           s.type   = sensor.type;
           s.frame  = frame + "rgb";
 
@@ -1848,17 +1642,14 @@ void FlightforgeSimulator::setupDevices(size_t uav) {
           break;
         }
 
-        case flightforge::SENSOR_FISHEYE_CAMERA: {
+        case SensorType::FISHEYE_CAMERA: {
 
-          const auto [ok, cfg] = connector->GetFisheyeCameraConfig(sensor.id);
-
-          if (!ok) {
-            failSetup(uav, "could not read " + names[d] + "/fisheye");
-          }
+          const auto cfg = connector->GetFisheyeCameraConfig(sensor.id);
+          read(cfg, "fisheye");
 
           FisheyeSensor s;
 
-          s.params = toFisheyeParams(cfg, device.camera_rate);
+          s.params = toFisheyeParams(*cfg, device.camera_rate);
           s.frame  = frame + "fisheye";
 
           const std::string topic = named(s, "fisheye");
@@ -1868,46 +1659,39 @@ void FlightforgeSimulator::setupDevices(size_t uav) {
           break;
         }
 
-        case flightforge::SENSOR_STEREO_CAMERA: {
+        case SensorType::STEREO_CAMERA: {
 
-          const auto [ok, cfg] = connector->GetStereoCameraConfig(sensor.id);
-
-          if (!ok) {
-            failSetup(uav, "could not read " + names[d] + "/stereo");
-          }
+          const auto cfg = connector->GetStereoCameraConfig(sensor.id);
+          read(cfg, "stereo");
 
           StereoSensor s;
 
-          s.params      = toStereoParams(cfg, device.camera_rate);
+          s.params      = toStereoParams(*cfg, device.camera_rate);
           s.frame_left  = frame + "stereo_left";
           s.frame_right = frame + "stereo_right";
 
           const std::string topic = named(s, "stereo");
 
           highest_rate_ = std::max(highest_rate_, s.params.rate);
-          registerStereo(uav, std::move(s), topic, leftEyeMount(cfg), rightEyeMount(cfg));
+          registerStereo(uav, std::move(s), topic, toMount(cfg->mount_left.get()), toMount(cfg->mount_right.get()));
           break;
         }
 
-        case flightforge::SENSOR_LIDAR:
-        case flightforge::SENSOR_LIDAR_LIVOX: {
+        case SensorType::LIDAR: {
 
-          auto [ok, cfg] = connector->GetLidarConfig(sensor.id);
-
-          if (!ok) {
-            failSetup(uav, "could not read " + names[d] + "/lidar");
-          }
+          auto cfg = connector->GetLidarConfig(sensor.id);
+          read(cfg, "lidar");
 
           LidarSensor s;
 
-          s.params = toLidarParams(cfg, device);
+          s.params = toLidarParams(*cfg, device);
           s.frame  = frame + "lidar";
 
-          cfg.showBeams = false;
-          cfg.Frequency = s.params.rate;
+          cfg->show_beams = false;
+          cfg->frequency  = s.params.rate;
 
-          if (!connector->SetLidarConfig(cfg, sensor.id)) {
-            failSetup(uav, "could not configure " + names[d] + "/lidar");
+          if (const auto set = connector->SetLidarConfig(*cfg, sensor.id); !set) {
+            failSetup(uav, "could not configure " + names[d] + "/lidar: " + set.error);
           }
 
           const std::string topic = named(s, "lidar");
@@ -1918,11 +1702,11 @@ void FlightforgeSimulator::setupDevices(size_t uav) {
         }
 
         default:
-          failSetup(uav, "device " + device.type + " has a sensor of type " + std::to_string(sensor.type) + ", which the node does not publish yet");
+          failSetup(uav, "device " + device.type + " has a " + flightforge::wire::EnumNameSensorType(sensor.type) + ", which the node does not publish yet");
       }
     }
 
-    RCLCPP_INFO(node_->get_logger(), "%s: added %s with %zu sensors", uav_name.c_str(), names[d].c_str(), created.size());
+    RCLCPP_INFO(node_->get_logger(), "%s: added %s with %zu sensors", uav_name.c_str(), names[d].c_str(), created->size());
   }
 }
 
@@ -2035,11 +1819,9 @@ void FlightforgeSimulator::onShutdown(void) {
 
     std::scoped_lock lock(mutex_flightforge_);
 
-    double applied;
-
     ff_sim_->SetLockstep(false);
-    ff_sim_->SetFixedTimestep(0.0, 0.0, applied);
-    ff_sim_->SetCameraCaptureMode(flightforge::CAPTURE_ALL_FRAMES);
+    ff_sim_->SetFixedTimestep(0.0);
+    ff_sim_->SetCaptureMode(flightforge::wire::CaptureMode::ALL_FRAMES);
   }
 }
 
@@ -2060,17 +1842,15 @@ void FlightforgeSimulator::stepSimulator(const rclcpp::Time& sim_time) {
 
   updateUnrealPoses(false);
 
-  bool     res;
-  double   ue_world_time;
-  uint64_t ticks;
+  flightforge::Expected<flightforge::StepResult> step;
 
   {
     std::scoped_lock lock(mutex_flightforge_);
-    res = ff_sim_->Step(1, ue_world_time, ticks);
+    step = ff_sim_->Step(1);
   }
 
-  if (!res) {
-    RCLCPP_ERROR(node_->get_logger(), "FlightForge did not complete a lockstep step, is the simulator still running?");
+  if (!step) {
+    RCLCPP_ERROR(node_->get_logger(), "FlightForge did not complete a lockstep step (%s), is the simulator still running?", step.error.c_str());
     rclcpp::shutdown();
     exit(1);
   }
@@ -2079,7 +1859,7 @@ void FlightforgeSimulator::stepSimulator(const rclcpp::Time& sim_time) {
 
   {
     std::scoped_lock lock(mutex_wall_time_offset_);
-    ue_world_offset_       = sim_time.seconds() - ue_world_time;
+    ue_world_offset_       = sim_time.seconds() - step->sim_time;
     ue_world_offset_valid_ = true;
   }
 
@@ -2093,10 +1873,19 @@ void FlightforgeSimulator::stepSimulator(const rclcpp::Time& sim_time) {
 
 //}
 
-/* sensorStamp() //{ */
+/* cameraStamp() //{ */
 
-rclcpp::Time FlightforgeSimulator::sensorStamp(double capture_stamp) {
+// the simulator stamps camera frames with its wall clock, not its world time
+rclcpp::Time FlightforgeSimulator::cameraStamp(double capture_stamp) {
   return lockstep_ ? step_stamp_ : flightforgeTimeToSimtime(capture_stamp);
+}
+
+//}
+
+/* worldStamp() //{ */
+
+rclcpp::Time FlightforgeSimulator::worldStamp(double world_time) {
+  return lockstep_ ? step_stamp_ : ueWorldTimeToSimtime(world_time);
 }
 
 //}
@@ -2105,6 +1894,8 @@ rclcpp::Time FlightforgeSimulator::sensorStamp(double capture_stamp) {
 
 void FlightforgeSimulator::fetchCamera(size_t uav, size_t i) {
 
+  using flightforge::wire::SensorType;
+
   if (!is_initialized_) {
     return;
   }
@@ -2112,30 +1903,36 @@ void FlightforgeSimulator::fetchCamera(size_t uav, size_t i) {
   CameraSensor& s         = cameras_[uav][i];
   auto&         connector = s.connector;
 
-  bool                                   res   = false;
-  double                                 stamp = 0;
-  std::vector<unsigned char>             frame_data;
-  std::vector<uint16_t>                  depth;
-  int                                    depth_width = 0, depth_height = 0;
-  std::optional<sensor_msgs::msg::Image> image;
+  flightforge::Expected<flightforge::Image>      frame;
+  flightforge::Expected<flightforge::DepthImage> depth;
+  flightforge::Status                            got;
+  double                                         stamp = 0;
 
   switch (s.type) {
-    case flightforge::SENSOR_RGB_CAMERA:
-      std::tie(res, frame_data, stamp, std::ignore) = connector->GetRgbCameraData(s.id);
+    case SensorType::RGB_SEG_CAMERA:
+      frame = connector->GetRgbSegCameraData(s.id);
       break;
-    case flightforge::SENSOR_RGB_SEG_CAMERA:
-      std::tie(res, frame_data, stamp, std::ignore) = connector->GetRgbSegmented(s.id);
+    case SensorType::INSTANCE_SEG_CAMERA:
+      frame = connector->GetInstanceSegData(s.id);
       break;
-    case flightforge::SENSOR_INSTANCE_SEG_CAMERA:
-      res = connector->GetInstanceSegData(frame_data, stamp, s.id);
+    case SensorType::DEPTH_CAMERA:
+      depth = connector->GetDepthCameraData(s.id);
       break;
     default:
-      res = connector->GetDepthCameraData(depth, depth_width, depth_height, stamp, s.id);
+      frame = connector->GetRgbCameraData(s.id);
       break;
   }
 
-  if (!res) {
-    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s", uav_names[uav].c_str(), s.name.c_str());
+  if (s.type == SensorType::DEPTH_CAMERA) {
+    got   = depth;
+    stamp = depth->stamp;
+  } else {
+    got   = frame;
+    stamp = frame->stamp;
+  }
+
+  if (!got) {
+    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s: %s", uav_names[uav].c_str(), s.name.c_str(), got.error.c_str());
     return;
   }
 
@@ -2148,7 +1945,7 @@ void FlightforgeSimulator::fetchCamera(size_t uav, size_t i) {
 
   s.last_stamp = stamp;
 
-  const rclcpp::Time published_stamp = sensorStamp(stamp);
+  const rclcpp::Time published_stamp = cameraStamp(stamp);
   if (published_stamp <= s.last_published_stamp) {
     return;
   }
@@ -2158,11 +1955,12 @@ void FlightforgeSimulator::fetchCamera(size_t uav, size_t i) {
   header.frame_id = s.frame;
   header.stamp    = published_stamp;
 
-  if (s.type == flightforge::SENSOR_DEPTH_CAMERA) {
-    image = toDepthImage(depth, s.info.width, s.info.height, header);
-  } else if (const auto frame = s.type == flightforge::SENSOR_RGB_SEG_CAMERA ? rawFrame(frame_data, s.info.width, s.info.height)
-                                                                                : decodeFrame(frame_data, s.info.width, s.info.height)) {
-    image = s.type == flightforge::SENSOR_INSTANCE_SEG_CAMERA ? toInstanceImage(*frame, header) : toColorImage(*frame, header);
+  std::optional<sensor_msgs::msg::Image> image;
+
+  if (s.type == SensorType::DEPTH_CAMERA) {
+    image = depth->width == s.info.width && depth->height == s.info.height ? toDepthImage(depth->mm, s.info.width, s.info.height, header) : std::nullopt;
+  } else if (const auto bgr = toBgr(*frame, s.info.width, s.info.height)) {
+    image = s.type == SensorType::INSTANCE_SEG_CAMERA ? toInstanceImage(*bgr, header) : toColorImage(*bgr, header);
   }
 
   if (!image) {
@@ -2177,17 +1975,9 @@ void FlightforgeSimulator::fetchCamera(size_t uav, size_t i) {
   info.header = header;
   s.ph_info.publish(info);
 
-  if (s.type == flightforge::SENSOR_INSTANCE_SEG_CAMERA && !s.map_published) {
-
-    bool                                                ok;
-    std::vector<Serializable::Drone::InstanceSegMapEntry> entries;
-
-    {
-      std::tie(ok, entries) = connector->GetInstanceSegMap(s.id);
-    }
-
-    if (ok) {
-      s.ph_map.publish(toInstanceMap(entries, header));
+  if (s.type == SensorType::INSTANCE_SEG_CAMERA && !s.map_published) {
+    if (const auto entries = connector->GetInstanceSegMap(s.id)) {
+      s.ph_map.publish(toInstanceMap(*entries, header));
       s.map_published = true;
     }
   }
@@ -2205,33 +1995,29 @@ void FlightforgeSimulator::fetchFisheye(size_t uav, size_t i) {
 
   FisheyeSensor& s = fisheyes_[uav][i];
 
-  bool                       res;
-  double                     stamp;
-  std::vector<unsigned char> compressed;
+  const auto got = s.connector->GetFisheyeCameraData(s.id);
 
-  std::tie(res, compressed, stamp, std::ignore) = s.connector->GetFisheyeCameraData(s.id);
-
-  if (!res) {
-    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s", uav_names[uav].c_str(), s.name.c_str());
+  if (!got) {
+    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s: %s", uav_names[uav].c_str(), s.name.c_str(), got.error.c_str());
     return;
   }
 
-  if (stamp <= s.last_stamp) {
+  if (got->stamp <= s.last_stamp) {
     if (lockstep_) {
       RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s returned no new frame", uav_names[uav].c_str(), s.name.c_str());
     }
     return;
   }
 
-  s.last_stamp = stamp;
+  s.last_stamp = got->stamp;
 
-  const rclcpp::Time published_stamp = sensorStamp(stamp);
+  const rclcpp::Time published_stamp = cameraStamp(got->stamp);
   if (published_stamp <= s.last_published_stamp) {
     return;
   }
   s.last_published_stamp = published_stamp;
 
-  const auto frame = decodeFrame(compressed, s.info.width, s.info.height);
+  const auto frame = toBgr(*got, s.info.width, s.info.height);
 
   if (!frame) {
     RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s frame is not %dx%d, dropped", uav_names[uav].c_str(), s.name.c_str(),
@@ -2262,34 +2048,30 @@ void FlightforgeSimulator::fetchStereo(size_t uav, size_t i) {
 
   StereoSensor& s = stereos_[uav][i];
 
-  bool                       res;
-  double                     stamp;
-  std::vector<unsigned char> compressed_left, compressed_right;
+  const auto got = s.connector->GetStereoCameraData(s.id);
 
-  std::tie(res, compressed_left, compressed_right, stamp) = s.connector->GetStereoCameraData(s.id);
-
-  if (!res) {
-    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s", uav_names[uav].c_str(), s.name.c_str());
+  if (!got) {
+    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s: %s", uav_names[uav].c_str(), s.name.c_str(), got.error.c_str());
     return;
   }
 
-  if (stamp <= s.last_stamp) {
+  if (got->stamp <= s.last_stamp) {
     if (lockstep_) {
       RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s returned no new frame", uav_names[uav].c_str(), s.name.c_str());
     }
     return;
   }
 
-  s.last_stamp = stamp;
+  s.last_stamp = got->stamp;
 
-  const rclcpp::Time published_stamp = sensorStamp(stamp);
+  const rclcpp::Time published_stamp = cameraStamp(got->stamp);
   if (published_stamp <= s.last_published_stamp) {
     return;
   }
   s.last_published_stamp = published_stamp;
 
-  const auto left  = decodeFrame(compressed_left, s.info_left.width, s.info_left.height);
-  const auto right = decodeFrame(compressed_right, s.info_right.width, s.info_right.height);
+  const auto left  = toBgr(got->left, s.info_left.width, s.info_left.height);
+  const auto right = toBgr(got->right, s.info_right.width, s.info_right.height);
 
   if (!left || !right) {
     RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s frame is not %dx%d, dropped", uav_names[uav].c_str(), s.name.c_str(),
@@ -2328,15 +2110,14 @@ void FlightforgeSimulator::fetchEvent(size_t uav, size_t i) {
 
   EventSensor& s = events_[uav][i];
 
-  bool                         res;
-  flightforge::CameraEvents events;
+  const auto got = s.connector->GetEventCameraData(s.id);
 
-  std::tie(res, events) = s.connector->GetEventCameraData(s.id);
-
-  if (!res) {
-    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s", uav_names[uav].c_str(), s.name.c_str());
+  if (!got) {
+    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s: %s", uav_names[uav].c_str(), s.name.c_str(), got.error.c_str());
     return;
   }
+
+  const flightforge::CameraEvents& events = *got;
 
   if (events.dropped > 0) {
     RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s dropped %u events", uav_names[uav].c_str(), s.name.c_str(), events.dropped);
@@ -2368,23 +2149,21 @@ void FlightforgeSimulator::fetchLidar(size_t uav, size_t i) {
 
   LidarSensor& s = lidars_[uav][i];
 
-  bool                      res;
-  flightforge::LidarScan scan;
+  const auto scan = s.connector->GetLidarScan(s.params.intensity, s.params.labels, s.id);
 
-  std::tie(res, scan) = s.connector->GetLidarScan(s.params.labels, s.params.intensity, s.id);
-
-  if (!res) {
-    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s", uav_names[uav].c_str(), s.name.c_str());
+  if (!scan) {
+    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s: %s", uav_names[uav].c_str(), s.name.c_str(), scan.error.c_str());
     return;
   }
 
-  if (scan.stamp == s.last_stamp) {
+  // without the first time sync the stamp would be raw world time
+  if (scan->stamp == s.last_stamp || (!lockstep_ && !mrs_lib::get_mutexed(mutex_wall_time_offset_, ue_world_offset_valid_))) {
     return;
   }
 
-  s.last_stamp = scan.stamp;
+  s.last_stamp = scan->stamp;
 
-  const rclcpp::Time published_stamp = sensorStamp(scan.stamp);
+  const rclcpp::Time published_stamp = worldStamp(scan->stamp);
 
   if (published_stamp <= s.last_published_stamp) {
     RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 5000, "%s: %s dropped a scan stamped %.3f, the last was %.3f", uav_names[uav].c_str(), s.name.c_str(),
@@ -2398,7 +2177,7 @@ void FlightforgeSimulator::fetchLidar(size_t uav, size_t i) {
   header.frame_id = s.frame;
   header.stamp    = published_stamp;
 
-  const auto clouds = toLidarClouds(scan, s.params, header, s.rng);
+  const auto clouds = toLidarClouds(*scan, s.params, header, s.rng);
 
   if (!clouds) {
     RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s returned channels not parallel to its points, dropped", uav_names[uav].c_str(),
@@ -2425,24 +2204,33 @@ void FlightforgeSimulator::fetchRangefinder(size_t uav, size_t i) {
 
   RangefinderSensor& s = rangefinders_[uav][i];
 
-  bool   res;
-  double range;
+  const auto reading = s.connector->GetRangefinderData(s.id);
 
-  std::tie(res, range) = s.connector->GetRangefinderData(s.id);
-
-  if (!res) {
-    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s", uav_names[uav].c_str(), s.name.c_str());
+  if (!reading) {
+    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s: %s", uav_names[uav].c_str(), s.name.c_str(), reading.error.c_str());
     return;
   }
 
+  if (!lockstep_ && !mrs_lib::get_mutexed(mutex_wall_time_offset_, ue_world_offset_valid_)) {
+    return;
+  }
+
+  const rclcpp::Time published_stamp = worldStamp(reading->stamp);
+
+  if (published_stamp <= s.last_published_stamp) {
+    return;
+  }
+
+  s.last_published_stamp = published_stamp;
+
   sensor_msgs::msg::Range msg;
 
-  msg.header.stamp    = mrs_lib::get_mutexed(mutex_sim_time_, sim_time_);
+  msg.header.stamp    = published_stamp;
   msg.header.frame_id = s.frame;
   msg.radiation_type  = sensor_msgs::msg::Range::INFRARED;
   msg.min_range       = 0.1;
   msg.max_range       = 30.0;
-  msg.range           = range / 100.0;
+  msg.range           = std::isnan(reading->range) ? std::numeric_limits<float>::infinity() : float(reading->range);  // REP 117: +inf is no return
 
   s.ph_range.publish(msg);
 }

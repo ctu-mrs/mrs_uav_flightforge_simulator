@@ -99,9 +99,6 @@ rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_type
 
 include_directories(
   include
-  include/cereal
-  include/flight_forge_connector
-  include/kissnet
   ${rclcpp_INCLUDE_DIRS}
   ${mrs_lib_INCLUDE_DIRS}
   ${mrs_multirotor_simulator_INCLUDE_DIRS}
@@ -120,7 +117,7 @@ endif()
 ## | --------------------- FlightForge connector --------------------- |
 
 add_library(MrsUavFlightforgeSimulator_FlightforgeConnector SHARED
-  src/flight_forge_connector/socket_client.cpp
+  src/flight_forge_connector/connection.cpp
   src/flight_forge_connector/robot_client.cpp
   src/flight_forge_connector/simulator_client.cpp
 )

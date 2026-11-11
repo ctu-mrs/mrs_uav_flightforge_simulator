@@ -94,7 +94,7 @@ TEST(Events, EmptyBatchStillHasHeader) {
 }
 
 TEST(InstanceMap, KeepsTwentyFourBitIds) {
-  Serializable::Drone::InstanceSegMapEntry e;
+  flightforge::wire::InstanceSegEntryT e;
   e.id       = 0x123456;
   e.actor    = "/Game/A";
   e.class_id = 3;
