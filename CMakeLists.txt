@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.20)
 project(mrs_uav_flightforge_simulator)
 
 set(CMAKE_C_STANDARD 99)
@@ -54,6 +54,28 @@ set(DEPENDENCIES
   event_camera_codecs
 )
 
+set(TARGETS
+  rclcpp::rclcpp
+  rclcpp_components::component
+  Eigen3::Eigen
+  mrs_lib::mrs_lib
+  ${mrs_msgs_TARGETS}
+  mrs_uav_hw_api::mrs_uav_hw_api
+  mrs_multirotor_simulator::MrsMultirotorSimulator_Simulator
+  ${nav_msgs_TARGETS}
+  ${rosgraph_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${std_srvs_TARGETS}
+  image_transport::image_transport
+  cv_bridge::cv_bridge
+  pcl_ros::pcl_ros_tf
+  pcl_conversions::pcl_conversions
+  ${geometry_msgs_TARGETS}
+  # Backward::Backward
+  # rosidl_default_generators
+)
+
 set(LIBRARIES
   MrsUavFlightforgeSimulator_FlightforgeConnector
   MrsUavFlightforgeSimulator_Sensors
@@ -85,6 +107,15 @@ include_directories(
   ${mrs_multirotor_simulator_INCLUDE_DIRS}
   ${mrs_uav_hw_api_INCLUDE_DIRS}
 )
+
+# Backwards compatibility fix for ROS2 Jazzy
+if(NOT TARGET pcl_conversions::pcl_conversions AND pcl_conversions_FOUND)
+  add_library(pcl_conversions::pcl_conversions INTERFACE IMPORTED)
+  set_target_properties(pcl_conversions::pcl_conversions PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${pcl_conversions_INCLUDE_DIRS}"
+    INTERFACE_LINK_LIBRARIES "${pcl_conversions_LIBRARIES}"
+  )
+endif()
 
 ## | --------------------- FlightForge connector --------------------- |
 
@@ -123,8 +154,8 @@ target_link_libraries(MrsUavFlightforgeSimulator_FlightforgeSimulator
   ${cpp_typesupport_target}
 )
 
-ament_target_dependencies(MrsUavFlightforgeSimulator_FlightforgeSimulator
-  ${DEPENDENCIES}
+target_link_libraries(MrsUavFlightforgeSimulator_FlightforgeSimulator
+  ${TARGETS}
 )
 
 rclcpp_components_register_nodes(MrsUavFlightforgeSimulator_FlightforgeSimulator PLUGIN "mrs_uav_flightforge_simulator::FlightforgeSimulator" EXECUTABLE MrsUavFlightforgeSimulator_FlightforgeSimulator)
@@ -137,8 +168,8 @@ add_library(MrsUavFlightforgeSimulator_HwApiPlugin SHARED
   src/hw_api_plugin.cpp
 )
 
-ament_target_dependencies(MrsUavFlightforgeSimulator_HwApiPlugin
-  ${DEPENDENCIES}
+target_link_libraries(MrsUavFlightforgeSimulator_HwApiPlugin
+  ${TARGETS}
 )
 
 target_compile_definitions(MrsUavFlightforgeSimulator_HwApiPlugin PRIVATE USE_ROS_TIMER=${USE_ROS_TIMER})
