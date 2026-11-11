@@ -12,7 +12,7 @@ mrs_uav_hw_api:
     velocity_hdg_rate:     false
     velocity_hdg:          false
     position:              false
-    feedforward:           true
+    feedforward:           false
 
   outputs:
     distance_sensor:      true
