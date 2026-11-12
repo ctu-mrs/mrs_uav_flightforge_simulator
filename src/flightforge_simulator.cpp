@@ -110,7 +110,6 @@ private:
   rclcpp::Time sim_time_;
   double       sim_time_wall_ = 0;
   rclcpp::Time last_step_time_;
-  rclcpp::Time last_step_wall_time_;
   std::mutex   mutex_sim_time_;
 
   std::string _world_frame_name_;
@@ -177,7 +176,6 @@ private:
   double mainTimerPeriod(double rtf) const;
 
   void         stepSimulator(const rclcpp::Time& sim_time);
-  rclcpp::Time cameraStamp(double capture_stamp);
   rclcpp::Time worldStamp(double world_time);
 
   void setupSensors(size_t uav);
@@ -242,17 +240,11 @@ private:
 
   void checkForCrash(void);
 
-  rclcpp::Time flightforgeTimeToSimtime(const double flightforge_time);
-
   rclcpp::Time ueWorldTimeToSimtime(const double ue_world_time);
 
-  // how much to add to unreal time to get to our wall time
-  double       wall_time_offset_             = 0;
-  double       wall_time_offset_drift_slope_ = 0;
-  std::mutex   mutex_wall_time_offset_;
-  double       ue_world_offset_ = 0;  // ROS sim time minus UE world time
-  bool         ue_world_offset_valid_ = false;
-  rclcpp::Time last_real_;
+  std::mutex mutex_ue_world_offset_;
+  double     ue_world_offset_       = 0;  // ROS sim time minus UE world time
+  bool       ue_world_offset_valid_ = false;
 
   double                   flightforge_fps_ = 0;
   std::string              flightforge_world_level_name_enum_;
@@ -420,13 +412,11 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "sim_time_from_wall_time", sim_time_from_wall_time);
 
   if (sim_time_from_wall_time) {
-    sim_time_            = clock_->now();
-    last_step_time_      = clock_->now();
-    last_step_wall_time_ = wall_clock_->now();
+    sim_time_       = clock_->now();
+    last_step_time_ = clock_->now();
   } else {
-    sim_time_            = rclcpp::Time(0, 0, RCL_ROS_TIME);
-    last_step_time_      = rclcpp::Time(0, 0, RCL_ROS_TIME);
-    last_step_wall_time_ = rclcpp::Time(0, 0, RCL_SYSTEM_TIME);
+    sim_time_       = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    last_step_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
 
   {
@@ -801,22 +791,6 @@ void FlightforgeSimulator::timerMain() {
 
   auto sim_time = mrs_lib::get_mutexed(mutex_sim_time_, sim_time_);
 
-  // fast propagation of the wall time offset using the offset drift
-  {
-    std::scoped_lock lock(mutex_wall_time_offset_);
-
-    rclcpp::Time now_wall = wall_clock_->now();
-
-    const double wall_dt_since_last_step = (now_wall - last_step_wall_time_).seconds();
-
-    if (wall_dt_since_last_step > 1e-5) {
-
-      wall_time_offset_ += wall_time_offset_drift_slope_ * wall_dt_since_last_step;
-    }
-
-    last_step_wall_time_ = now_wall;
-  }
-
   {
     const double dt_since_last_step = (sim_time - last_step_time_).seconds();
 
@@ -946,13 +920,9 @@ void FlightforgeSimulator::timerUnrealSync() {
 
 void FlightforgeSimulator::timerTimeSync() {
 
-  rclcpp::Time current_real = wall_clock_->now();
-
-  if (!is_initialized_) {
+  if (!is_initialized_ || lockstep_) {
     return;
   }
-
-  auto wall_time_offset = mrs_lib::get_mutexed(mutex_wall_time_offset_, wall_time_offset_);
 
   flightforge::Expected<flightforge::TimeInfo> time;
   double                                       sync_start;
@@ -973,56 +943,16 @@ void FlightforgeSimulator::timerTimeSync() {
     return;
   }
 
-  if (!lockstep_) {
+  auto [sim_now, sim_now_wall] = mrs_lib::get_mutexed(mutex_sim_time_, sim_time_, sim_time_wall_);
+  auto actual_rtf              = mrs_lib::get_mutexed(mutex_actual_rtf_, actual_rtf_);
 
-    auto [sim_now, sim_now_wall] = mrs_lib::get_mutexed(mutex_sim_time_, sim_time_, sim_time_wall_);
-    auto actual_rtf              = mrs_lib::get_mutexed(mutex_actual_rtf_, actual_rtf_);
+  const double ros_at_sample = sim_now.seconds() + ((sync_start + sync_end) / 2.0 - sim_now_wall) * actual_rtf;
 
-    const double ros_at_sample = sim_now.seconds() + ((sync_start + sync_end) / 2.0 - sim_now_wall) * actual_rtf;
+  std::scoped_lock lock(mutex_ue_world_offset_);
 
-    std::scoped_lock lock(mutex_wall_time_offset_);
-
-    // round-trip jitter would otherwise step event stamps back
-    ue_world_offset_ = ue_world_offset_valid_ ? 0.9 * ue_world_offset_ + 0.1 * (ros_at_sample - time->sim_time) : ros_at_sample - time->sim_time;
-    ue_world_offset_valid_ = true;
-  }
-
-  const double flightforge_time = time->wall_time;
-
-  const double true_flightforge_time = flightforge_time - (sync_end - sync_start) / 2.0;
-
-  const double new_wall_time_offset = sync_start - true_flightforge_time;
-
-  // | --------------- time drift slope estimation -------------- |
-
-  if (current_real.seconds() > 0 && last_real_.seconds() > 0) {
-
-    const double wall_dt = (current_real - last_real_).seconds();
-
-    if (wall_dt > 0) {
-
-      double drift_estimate = (new_wall_time_offset - wall_time_offset) / wall_dt;
-
-      {
-        std::scoped_lock lock(mutex_wall_time_offset_);
-
-        wall_time_offset_drift_slope_ += drift_estimate;
-      }
-    }
-  }
-
-  // | ------------------------- finish ------------------------- |
-
-  {
-    std::scoped_lock lock(mutex_wall_time_offset_);
-
-    wall_time_offset_ = new_wall_time_offset;
-  }
-
-  last_real_ = current_real;
-
-  RCLCPP_INFO(node_->get_logger(), "wall time %f flightforge %f time offset: %f, offset slope %f s/s", sync_start, flightforge_time, wall_time_offset_,
-              wall_time_offset_drift_slope_);
+  // round-trip jitter would otherwise step stamps back
+  ue_world_offset_       = ue_world_offset_valid_ ? 0.9 * ue_world_offset_ + 0.1 * (ros_at_sample - time->sim_time) : ros_at_sample - time->sim_time;
+  ue_world_offset_valid_ = true;
 }
 
 //}
@@ -1179,36 +1109,11 @@ void FlightforgeSimulator::checkForCrash(void) {
 
 //}
 
-/* flightforgeTimeToSimtime() //{ */
-
-rclcpp::Time FlightforgeSimulator::flightforgeTimeToSimtime(const double flightforge_time) {
-
-  auto wall_time_offset = mrs_lib::get_mutexed(mutex_wall_time_offset_, wall_time_offset_);
-  auto actual_rtf       = mrs_lib::get_mutexed(mutex_actual_rtf_, actual_rtf_);
-
-  auto [sim_now, sim_now_wall] = mrs_lib::get_mutexed(mutex_sim_time_, sim_time_, sim_time_wall_);
-
-  // interpolated between clock ticks, else two captures within one tick can swap order
-  const double capture_wall = flightforge_time + wall_time_offset;
-  const double sim_time     = sim_now.seconds() - std::max(0.0, sim_now_wall - capture_wall) * actual_rtf;
-
-  if (sim_time < 0) {
-    return rclcpp::Time(0, 0, clock_->get_clock_type());
-  }
-
-  const double secs     = floor(sim_time);
-  const double nanosecs = (sim_time - secs) * 1e9;
-
-  return rclcpp::Time(secs, nanosecs, clock_->get_clock_type());
-}
-
-//}
-
 /* ueWorldTimeToSimtime() //{ */
 
 rclcpp::Time FlightforgeSimulator::ueWorldTimeToSimtime(const double ue_world_time) {
 
-  const double sim_time = ue_world_time + mrs_lib::get_mutexed(mutex_wall_time_offset_, ue_world_offset_);
+  const double sim_time = ue_world_time + mrs_lib::get_mutexed(mutex_ue_world_offset_, ue_world_offset_);
 
   return rclcpp::Time(int64_t(std::max(0.0, sim_time) * 1e9), clock_->get_clock_type());
 }
@@ -1848,7 +1753,7 @@ void FlightforgeSimulator::stepSimulator(const rclcpp::Time& sim_time) {
   step_stamp_ = sim_time;
 
   {
-    std::scoped_lock lock(mutex_wall_time_offset_);
+    std::scoped_lock lock(mutex_ue_world_offset_);
     ue_world_offset_       = sim_time.seconds() - step->sim_time;
     ue_world_offset_valid_ = true;
   }
@@ -1859,15 +1764,6 @@ void FlightforgeSimulator::stepSimulator(const rclcpp::Time& sim_time) {
   if (!fetches_.wait(15.0)) {
     RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "sensor fetches did not return within 15 s of a lockstep step");
   }
-}
-
-//}
-
-/* cameraStamp() //{ */
-
-// the simulator stamps camera frames with its wall clock, not its world time
-rclcpp::Time FlightforgeSimulator::cameraStamp(double capture_stamp) {
-  return lockstep_ ? step_stamp_ : flightforgeTimeToSimtime(capture_stamp);
 }
 
 //}
@@ -1926,7 +1822,7 @@ void FlightforgeSimulator::fetchCamera(size_t uav, size_t i) {
     return;
   }
 
-  if (stamp <= s.last_stamp) {
+  if (stamp <= s.last_stamp || (!lockstep_ && !mrs_lib::get_mutexed(mutex_ue_world_offset_, ue_world_offset_valid_))) {
     if (lockstep_) {
       RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s returned no new frame", uav_names[uav].c_str(), s.name.c_str());
     }
@@ -1935,7 +1831,7 @@ void FlightforgeSimulator::fetchCamera(size_t uav, size_t i) {
 
   s.last_stamp = stamp;
 
-  const rclcpp::Time published_stamp = cameraStamp(stamp);
+  const rclcpp::Time published_stamp = worldStamp(stamp);
   if (published_stamp <= s.last_published_stamp) {
     return;
   }
@@ -1992,7 +1888,7 @@ void FlightforgeSimulator::fetchFisheye(size_t uav, size_t i) {
     return;
   }
 
-  if (got->stamp <= s.last_stamp) {
+  if (got->stamp <= s.last_stamp || (!lockstep_ && !mrs_lib::get_mutexed(mutex_ue_world_offset_, ue_world_offset_valid_))) {
     if (lockstep_) {
       RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s returned no new frame", uav_names[uav].c_str(), s.name.c_str());
     }
@@ -2001,7 +1897,7 @@ void FlightforgeSimulator::fetchFisheye(size_t uav, size_t i) {
 
   s.last_stamp = got->stamp;
 
-  const rclcpp::Time published_stamp = cameraStamp(got->stamp);
+  const rclcpp::Time published_stamp = worldStamp(got->stamp);
   if (published_stamp <= s.last_published_stamp) {
     return;
   }
@@ -2045,7 +1941,7 @@ void FlightforgeSimulator::fetchStereo(size_t uav, size_t i) {
     return;
   }
 
-  if (got->stamp <= s.last_stamp) {
+  if (got->stamp <= s.last_stamp || (!lockstep_ && !mrs_lib::get_mutexed(mutex_ue_world_offset_, ue_world_offset_valid_))) {
     if (lockstep_) {
       RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: %s returned no new frame", uav_names[uav].c_str(), s.name.c_str());
     }
@@ -2054,7 +1950,7 @@ void FlightforgeSimulator::fetchStereo(size_t uav, size_t i) {
 
   s.last_stamp = got->stamp;
 
-  const rclcpp::Time published_stamp = cameraStamp(got->stamp);
+  const rclcpp::Time published_stamp = worldStamp(got->stamp);
   if (published_stamp <= s.last_published_stamp) {
     return;
   }
@@ -2114,7 +2010,7 @@ void FlightforgeSimulator::fetchEvent(size_t uav, size_t i) {
   }
 
   // without the first time sync the stamp would be raw UE world time
-  if (events.stamp <= s.last_stamp || !mrs_lib::get_mutexed(mutex_wall_time_offset_, ue_world_offset_valid_)) {
+  if (events.stamp <= s.last_stamp || !mrs_lib::get_mutexed(mutex_ue_world_offset_, ue_world_offset_valid_)) {
     return;
   }
 
@@ -2147,7 +2043,7 @@ void FlightforgeSimulator::fetchLidar(size_t uav, size_t i) {
   }
 
   // without the first time sync the stamp would be raw world time
-  if (scan->stamp == s.last_stamp || (!lockstep_ && !mrs_lib::get_mutexed(mutex_wall_time_offset_, ue_world_offset_valid_))) {
+  if (scan->stamp == s.last_stamp || (!lockstep_ && !mrs_lib::get_mutexed(mutex_ue_world_offset_, ue_world_offset_valid_))) {
     return;
   }
 
@@ -2201,7 +2097,7 @@ void FlightforgeSimulator::fetchRangefinder(size_t uav, size_t i) {
     return;
   }
 
-  if (!lockstep_ && !mrs_lib::get_mutexed(mutex_wall_time_offset_, ue_world_offset_valid_)) {
+  if (!lockstep_ && !mrs_lib::get_mutexed(mutex_ue_world_offset_, ue_world_offset_valid_)) {
     return;
   }
 
