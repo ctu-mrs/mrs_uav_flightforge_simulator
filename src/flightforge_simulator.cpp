@@ -590,6 +590,8 @@ void FlightforgeSimulator::timerInit() {
   const auto report = [this](const flightforge::Status& status, const std::string& what) {
     if (status) {
       RCLCPP_INFO(node_->get_logger(), "%s", what.c_str());
+    } else if (status.error.find("has no sky system") != std::string::npos) {
+      RCLCPP_WARN(node_->get_logger(), "could not %s: %s", what.c_str(), status.error.c_str());
     } else {
       RCLCPP_ERROR(node_->get_logger(), "could not %s: %s", what.c_str(), status.error.c_str());
     }
@@ -1056,6 +1058,10 @@ flightforge::RobotState FlightforgeSimulator::robotState(size_t uav) {
 /* updateUnrealPoses() //{ */
 
 void FlightforgeSimulator::updateUnrealPoses(const bool teleport_without_collision) {
+
+  if (shutting_down_) {
+    return;
+  }
 
   const bool collide = !teleport_without_collision && mrs_lib::get_mutexed(mutex_drs_params_, drs_params_).collisions_enabled;
 
@@ -1710,13 +1716,18 @@ void FlightforgeSimulator::onShutdown(void) {
     }
   }
 
+  std::scoped_lock lock(mutex_flightforge_);
+
   if (lockstep_) {
-
-    std::scoped_lock lock(mutex_flightforge_);
-
     ff_sim_->SetLockstep(false);
     ff_sim_->SetFixedTimestep(0.0);
     ff_sim_->SetCaptureMode(flightforge::wire::CaptureMode::ALL_FRAMES);
+  }
+
+  for (size_t i = 0; i < ff_robots_.size(); i++) {
+    if (const auto removed = ff_sim_->RemoveRobot(ff_robots_[i]->Id()); !removed) {
+      RCLCPP_WARN(node_->get_logger(), "could not remove %s from the simulator: %s", uav_names[i].c_str(), removed.error.c_str());
+    }
   }
 }
 
