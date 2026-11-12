@@ -205,6 +205,21 @@ private:
   void fetchLidar(size_t uav, size_t i);
   void fetchRangefinder(size_t uav, size_t i);
 
+  // free running captures on the simulator's clock, so the frame due for this read can land a tick after it
+  template <class Fetch>
+  auto fetchFresh(Fetch fetch, double last_stamp, double rate) {
+
+    auto         got      = fetch();
+    const double deadline = wall_clock_->now().seconds() + 0.5 / rate;
+
+    while (!lockstep_ && !shutting_down_ && got && got->stamp <= last_stamp && wall_clock_->now().seconds() < deadline) {
+      std::this_thread::sleep_for(2ms);
+      got = fetch();
+    }
+
+    return got;
+  }
+
   // | ------------------------ rtf check ----------------------- |
 
   double     actual_rtf_ = 1.0;
@@ -1816,14 +1831,22 @@ void FlightforgeSimulator::setupDevices(size_t uav) {
         }
       };
 
+      const auto capture_at_camera_rate = [&](auto& cfg, auto set, const std::string& role) {
+        cfg->capture_rate = device.camera_rate;
+        if (const auto set_ok = ((*connector).*set)(*cfg, sensor.id); !set_ok) {
+          failSetup(uav, "could not configure " + names[d] + "/" + role + ": " + set_ok.error);
+        }
+      };
+
       const std::string frame = uav_name + "/" + names[d] + "_";
 
       switch (sensor.type) {
 
         case SensorType::RGB_CAMERA: {
 
-          const auto cfg = connector->GetRgbCameraConfig(sensor.id);
+          auto cfg = connector->GetRgbCameraConfig(sensor.id);
           read(cfg, "rgb");
+          capture_at_camera_rate(cfg, &flightforge::RobotClient::SetRgbCameraConfig, "rgb");
 
           CameraSensor s;
 
@@ -1840,8 +1863,9 @@ void FlightforgeSimulator::setupDevices(size_t uav) {
 
         case SensorType::FISHEYE_CAMERA: {
 
-          const auto cfg = connector->GetFisheyeCameraConfig(sensor.id);
+          auto cfg = connector->GetFisheyeCameraConfig(sensor.id);
           read(cfg, "fisheye");
+          capture_at_camera_rate(cfg, &flightforge::RobotClient::SetFisheyeCameraConfig, "fisheye");
 
           FisheyeSensor s;
 
@@ -1857,8 +1881,9 @@ void FlightforgeSimulator::setupDevices(size_t uav) {
 
         case SensorType::STEREO_CAMERA: {
 
-          const auto cfg = connector->GetStereoCameraConfig(sensor.id);
+          auto cfg = connector->GetStereoCameraConfig(sensor.id);
           read(cfg, "stereo");
+          capture_at_camera_rate(cfg, &flightforge::RobotClient::SetStereoCameraConfig, "stereo");
 
           StereoSensor s;
 
@@ -2110,19 +2135,21 @@ void FlightforgeSimulator::fetchCamera(size_t uav, size_t i) {
   flightforge::Status                            got;
   double                                         stamp = 0;
 
-  switch (s.type) {
-    case SensorType::RGB_SEG_CAMERA:
-      frame = connector->GetRgbSegCameraData(s.id);
-      break;
-    case SensorType::INSTANCE_SEG_CAMERA:
-      frame = connector->GetInstanceSegData(s.id);
-      break;
-    case SensorType::DEPTH_CAMERA:
-      depth = connector->GetDepthCameraData(s.id);
-      break;
-    default:
-      frame = connector->GetRgbCameraData(s.id);
-      break;
+  if (s.type == SensorType::DEPTH_CAMERA) {
+    depth = fetchFresh([&]() { return connector->GetDepthCameraData(s.id); }, s.last_stamp, s.params.rate);
+  } else {
+    frame = fetchFresh(
+        [&]() {
+          switch (s.type) {
+            case SensorType::RGB_SEG_CAMERA:
+              return connector->GetRgbSegCameraData(s.id);
+            case SensorType::INSTANCE_SEG_CAMERA:
+              return connector->GetInstanceSegData(s.id);
+            default:
+              return connector->GetRgbCameraData(s.id);
+          }
+        },
+        s.last_stamp, s.params.rate);
   }
 
   if (s.type == SensorType::DEPTH_CAMERA) {
@@ -2197,7 +2224,7 @@ void FlightforgeSimulator::fetchFisheye(size_t uav, size_t i) {
 
   FisheyeSensor& s = fisheyes_[uav][i];
 
-  const auto got = s.connector->GetFisheyeCameraData(s.id);
+  const auto got = fetchFresh([&]() { return s.connector->GetFisheyeCameraData(s.id); }, s.last_stamp, s.params.rate);
 
   if (!got) {
     RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s: %s", uav_names[uav].c_str(), s.name.c_str(), got.error.c_str());
@@ -2250,7 +2277,7 @@ void FlightforgeSimulator::fetchStereo(size_t uav, size_t i) {
 
   StereoSensor& s = stereos_[uav][i];
 
-  const auto got = s.connector->GetStereoCameraData(s.id);
+  const auto got = fetchFresh([&]() { return s.connector->GetStereoCameraData(s.id); }, s.last_stamp, s.params.rate);
 
   if (!got) {
     RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s: could not get %s: %s", uav_names[uav].c_str(), s.name.c_str(), got.error.c_str());

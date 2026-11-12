@@ -235,6 +235,7 @@ void applyCameraParams(const CameraParams& p, flightforge::wire::RgbCameraConfig
   cfg.enable_motion_blur     = p.enable_motion_blur;
   cfg.motion_blur_amount     = p.motion_blur_amount;
   cfg.motion_blur_distortion = p.motion_blur_distortion;
+  cfg.capture_rate           = p.rate;
 }
 
 void applyFisheyeParams(const FisheyeParams& p, flightforge::wire::FisheyeCameraConfigT& cfg) {
@@ -242,8 +243,9 @@ void applyFisheyeParams(const FisheyeParams& p, flightforge::wire::FisheyeCamera
   cfg.height     = p.height;
   cfg.fov        = p.fov;
   cfg.lens       = flightforge::wire::FisheyeLens(p.lens_model);
-  cfg.full_frame = p.full_frame;
-  cfg.mount      = wirePose(p.mount);
+  cfg.full_frame   = p.full_frame;
+  cfg.mount        = wirePose(p.mount);
+  cfg.capture_rate = p.rate;
 }
 
 void applyStereoParams(const StereoParams& p, flightforge::wire::StereoCameraConfigT& cfg) {
@@ -258,6 +260,7 @@ void applyStereoParams(const StereoParams& p, flightforge::wire::StereoCameraCon
   cfg.enable_hdr         = p.enable_hdr;
   cfg.enable_temporal_aa = p.enable_temporal_aa;
   cfg.enable_raytracing  = p.enable_raytracing;
+  cfg.capture_rate       = p.rate;
 }
 
 void applyEventParams(const EventParams& p, flightforge::wire::EventCameraConfigT& cfg) {

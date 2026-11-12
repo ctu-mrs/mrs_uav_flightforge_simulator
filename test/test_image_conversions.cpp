@@ -205,16 +205,23 @@ TEST(Mount, RangefinderBeamIsTheFramesX) {
   }
 }
 
-TEST(SensorConfig, CameraCarriesTheMount) {
+TEST(SensorConfig, CameraCarriesTheMountAndCapturesAtItsRate) {
   CameraParams p{};
-  p.width = 320, p.height = 240, p.fov = 90, p.mount = Mount{0.14, 0, 0, 0, 10, 0};
+  p.rate = 5.0, p.width = 320, p.height = 240, p.fov = 90, p.mount = Mount{0.14, 0, 0, 0, 10, 0};
   flightforge::wire::RgbCameraConfigT cfg;
-  cfg.capture_rate = 5.0;
   applyCameraParams(p, cfg);
   EXPECT_EQ(cfg.width, 320u);
   ASSERT_TRUE(cfg.mount);
   expectMount(toMount(cfg.mount.get()), p.mount);
   EXPECT_DOUBLE_EQ(cfg.capture_rate, 5.0);
+}
+
+TEST(SensorConfig, FisheyeCapturesAtItsRate) {
+  FisheyeParams p{};
+  p.rate = 10.0, p.width = 640, p.height = 640, p.fov = 180;
+  flightforge::wire::FisheyeCameraConfigT cfg;
+  applyFisheyeParams(p, cfg);
+  EXPECT_DOUBLE_EQ(cfg.capture_rate, 10.0);
 }
 
 TEST(SensorConfig, LidarRangeInMetres) {
@@ -232,9 +239,11 @@ TEST(SensorConfig, StereoEyesMatchTheReadback) {
   StereoParams p{};
   p.baseline = 0.05, p.mount = Mount{0.1, 0, 0, 0, 0, 0};
   flightforge::wire::StereoCameraConfigT cfg;
+  p.rate = 10.0;
   applyStereoParams(p, cfg);
   EXPECT_NEAR(toMount(cfg.mount_left.get()).y, 0.025, 1e-12);
   EXPECT_NEAR(toMount(cfg.mount_right.get()).y, -0.025, 1e-12);
+  EXPECT_DOUBLE_EQ(cfg.capture_rate, 10.0);
 }
 
 TEST(DeviceReadback, StereoRecoversBaselineAndCentre) {
