@@ -49,6 +49,8 @@
 #include <pcl/common/transforms.h>
 
 #include <cctype>
+#include <cmath>
+#include <limits>
 #include <condition_variable>
 #include <random>
 #include <thread>
@@ -58,6 +60,7 @@
 #include <mrs_msgs/srv/float64_srv.hpp>
 #include <mrs_uav_flightforge_simulator/srv/set_orientation.hpp>
 
+#include <mrs_uav_flightforge_simulator/ground.h>
 #include <mrs_uav_flightforge_simulator/sensor_config.h>
 #include <mrs_uav_flightforge_simulator/sensor_conversions.h>
 #include <mrs_uav_flightforge_simulator/sensor_scheduler.h>
@@ -240,6 +243,40 @@ private:
 
   void checkForCrash(void);
 
+  // | ------------------------- ground ------------------------- |
+
+  bool ground_enabled_        = false;
+  bool ground_from_simulator_ = false;
+
+  std::vector<double> clearance_;  // [m] of the base link above the surface it rests on
+  std::vector<double> surface_;    // [m] highest surface under each UAV's footprint, NaN for none
+  std::vector<double> applied_ground_z_;
+
+  // own connection, so a game-thread hop never holds the main loop
+  std::shared_ptr<flightforge::SimulatorClient> ff_ground_sim_;
+
+  struct GroundPose
+  {
+    double x, y, z, yaw;
+  };
+
+  std::thread                 ground_thread_;
+  std::mutex                  mutex_ground_;
+  std::condition_variable     cv_ground_;
+  std::vector<GroundPose>     ground_poses_;
+  std::vector<double>         ground_surfaces_;
+  bool                        ground_request_ = false;
+  bool                        ground_stop_    = false;
+  int                         ground_queries_ = 0;
+  double                      ground_latency_ = 0.0;  // [s] summed since the last status
+  std::atomic<bool>           first_step_done_{false};
+
+  void        spawnRobot(size_t uav, const std::string& frame);
+  void        groundWorker(void);
+  void        requestGround(void);
+  void        applyGround(void);
+  GroundPose  groundPose(size_t uav);
+
   rclcpp::Time ueWorldTimeToSimtime(const double ue_world_time);
 
   std::mutex mutex_ue_world_offset_;
@@ -276,6 +313,8 @@ private:
     bool   collisions_enabled  = false;
     bool   collisions_crash    = false;
     double collisions_rebounce = 1;
+
+    double max_touchdown_speed = 2.0;  // [m/s]
 
   };
 
@@ -403,6 +442,9 @@ void FlightforgeSimulator::timerInit() {
 
   dynparam_mgr_->register_param(yaml_prefix + "collisions/rebounce", &drs_params_.collisions_rebounce, mrs_lib::DynparamMgr::range_t<double>(0.1, 1000));
 
+  dynparam_mgr_->register_param(yaml_prefix + "collisions/max_touchdown_speed", &drs_params_.max_touchdown_speed,
+                                mrs_lib::DynparamMgr::range_t<double>(0.0, 100.0));
+
   dynparam_mgr_->register_param(yaml_prefix + "paused", &drs_params_.paused, false,
                                 (std::function<void(const bool&)>)std::bind(&FlightforgeSimulator::callbackPause, this, std::placeholders::_1));
 
@@ -470,6 +512,11 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "world_name", flightforge_world_level_name_enum_);
   param_loader.loadParam(yaml_prefix + "forest_density", flightforge_forest_density_);
   param_loader.loadParam(yaml_prefix + "forest_hilly_level", flightforge_forest_hilly_level_);
+
+  param_loader.loadParam("ground/enabled", ground_enabled_);
+  param_loader.loadParam("ground/from_simulator", ground_from_simulator_);
+
+  ground_from_simulator_ = ground_enabled_ && ground_from_simulator_;
 
   std::vector<std::string> scene_files, libraries;
   param_loader.loadParam(yaml_prefix + "scene_files", scene_files);
@@ -556,6 +603,12 @@ void FlightforgeSimulator::timerInit() {
 
     RCLCPP_INFO(node_->get_logger(), "FlightForge API %d.%d (this node %d.%d)", info->major, info->minor, flightforge::SimulatorClient::kApiMajor,
                 flightforge::SimulatorClient::kApiMinor);
+
+    if (ground_from_simulator_ && info->minor < 1) {
+      RCLCPP_ERROR(node_->get_logger(), "ground/from_simulator needs FlightForge API 1.1 or newer for get_surface_height; update the simulator or set it false");
+      rclcpp::shutdown();
+      exit(1);
+    }
   }
 
   if (const auto switched = ff_sim_->SwitchWorld(level->second)) {
@@ -662,29 +715,29 @@ void FlightforgeSimulator::timerInit() {
     exit(1);
   }
 
+  clearance_.assign(uav_names.size(), 0.0);
+  surface_.assign(uav_names.size(), std::numeric_limits<double>::quiet_NaN());
+  applied_ground_z_.assign(uav_names.size(), std::numeric_limits<double>::quiet_NaN());
+
   for (size_t i = 0; i < uav_names.size(); i++) {
+    spawnRobot(i, "x500");
+    setupSensors(i);
+  }
 
-    const std::string uav_name = uav_names[i];
-    const std::string frame    = "x500";
+  if (ground_from_simulator_) {
 
-    const flightforge::RobotState state = robotState(i);
+    ff_ground_sim_ = std::make_shared<flightforge::SimulatorClient>(_simulator_ip_, _simulator_port_);
 
-    RCLCPP_INFO(node_->get_logger(), "spawning %s, a %s, at [%.2f, %.2f, %.2f]", uav_name.c_str(), frame.c_str(), state.base->position.x, state.base->position.y,
-                state.base->position.z);
-
-    const auto spawned = ff_sim_->SpawnRobot(frame, *state.base, uav_name);
-
-    if (!spawned) {
-      RCLCPP_ERROR(node_->get_logger(), "could not spawn %s: %s", uav_name.c_str(), spawned.error.c_str());
+    if (!ff_ground_sim_->Connect(3)) {
+      RCLCPP_ERROR(node_->get_logger(), "could not open the ground connection to FlightForge");
       rclcpp::shutdown();
       exit(1);
     }
 
-    RCLCPP_INFO(node_->get_logger(), "%s is robot %d", uav_name.c_str(), *spawned);
+    ground_surfaces_ = surface_;
+    applyGround();
 
-    ff_robots_.push_back(std::make_shared<flightforge::RobotClient>(ff_pose_sim_->SharedConnection(), *spawned));
-
-    setupSensors(i);
+    ground_thread_ = std::thread(&FlightforgeSimulator::groundWorker, this);
   }
 
   // | ----------------------- publishers ----------------------- |
@@ -801,14 +854,44 @@ void FlightforgeSimulator::timerMain() {
 
       const auto drs_params = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_);
 
-      if (drs_params.collisions_enabled && drs_params.collisions_crash) {
+      const bool crash_on_collision = drs_params.collisions_enabled && drs_params.collisions_crash;
+
+      if (crash_on_collision) {
         checkForCrash();
       }
 
+      if (ground_from_simulator_) {
+        applyGround();
+      }
+
       for (size_t i = 0; i < uavs_.size(); i++) {
-        if (!uavs_[i]->hasCrashed()) {
-          uavs_.at(i)->makeStep(dt_since_last_step, sim_time.seconds());
+
+        if (uavs_[i]->hasCrashed()) {
+          continue;
         }
+
+        const auto before = uavs_[i]->getState();
+
+        uavs_.at(i)->makeStep(dt_since_last_step, sim_time.seconds());
+
+        if (!ground_enabled_ || !crash_on_collision) {
+          continue;
+        }
+
+        const auto   after    = uavs_[i]->getState();
+        const double ground_z = uavs_[i]->getParams().ground_z;
+
+        if (touchedDown(after.x(2), after.v(0), after.v(1), after.v(2), before.v(2), ground_z) && -before.v(2) > drs_params.max_touchdown_speed) {
+          RCLCPP_WARN(node_->get_logger(), "%s crashed: hit the ground at %.2f m/s, faster than collisions/max_touchdown_speed (%.2f m/s)", uav_names[i].c_str(),
+                      -before.v(2), drs_params.max_touchdown_speed);
+          uavs_[i]->crash();
+        }
+      }
+
+      first_step_done_ = true;
+
+      if (ground_from_simulator_) {
+        requestGround();
       }
 
       publishPoses();
@@ -895,8 +978,20 @@ void FlightforgeSimulator::timerStatus() {
   }
 
 
-  RCLCPP_INFO(node_->get_logger(), "%s, desired RTF = %.2f, actual RTF = %.2f, FlightForge FPS = %.2f, FlightForge RTF = %.2f, time dilation = %.2f",
-              drs_params.paused ? "paused" : "running", drs_params.realtime_factor, actual_rtf, flightforge_fps_, flightforge_rtf, flightforge_time_dilation_);
+  std::string ground_status;
+
+  if (ground_from_simulator_) {
+    std::scoped_lock lock(mutex_ground_);
+    char             text[96];
+    std::snprintf(text, sizeof(text), ", ground %d Hz, %.1f ms", ground_queries_, ground_queries_ > 0 ? 1e3 * ground_latency_ / ground_queries_ : 0.0);
+    ground_status   = text;
+    ground_queries_ = 0;
+    ground_latency_ = 0.0;
+  }
+
+  RCLCPP_INFO(node_->get_logger(), "%s, desired RTF = %.2f, actual RTF = %.2f, FlightForge FPS = %.2f, FlightForge RTF = %.2f, time dilation = %.2f%s",
+              drs_params.paused ? "paused" : "running", drs_params.realtime_factor, actual_rtf, flightforge_fps_, flightforge_rtf, flightforge_time_dilation_,
+              ground_status.c_str());
 
   mrs_lib::set_mutexed(mutex_actual_rtf_, actual_rtf, actual_rtf_);
 }
@@ -1059,7 +1154,8 @@ flightforge::RobotState FlightforgeSimulator::robotState(size_t uav) {
 
 void FlightforgeSimulator::updateUnrealPoses(const bool teleport_without_collision) {
 
-  if (shutting_down_) {
+  // the spawn pose may lie below the model's ground until its first step lifts it
+  if (shutting_down_ || (ground_from_simulator_ && !first_step_done_)) {
     return;
   }
 
@@ -1091,13 +1187,15 @@ void FlightforgeSimulator::updateUnrealPoses(const bool teleport_without_collisi
 
 void FlightforgeSimulator::checkForCrash(void) {
 
+  const double max_touchdown_speed = mrs_lib::get_mutexed(mutex_drs_params_, drs_params_).max_touchdown_speed;
+
   for (size_t i = 0; i < ff_robots_.size(); i++) {
 
     if (uavs_[i]->hasCrashed()) {
       continue;
     }
 
-    const auto collision = ff_robots_[i]->GetCollision();
+    const auto collision = ff_robots_[i]->GetCollision(true);
 
     if (!collision) {
       RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "could not get the collision state of %s: %s", uav_names[i].c_str(),
@@ -1105,11 +1203,208 @@ void FlightforgeSimulator::checkForCrash(void) {
       continue;
     }
 
-    if (collision->collided) {
-      RCLCPP_WARN(node_->get_logger(), "%s crashed at [%.2f, %.2f, %.2f]", uav_names[i].c_str(), collision->impact_point.x, collision->impact_point.y,
-                  collision->impact_point.z);
-      uavs_[i]->crash();
+    if (!collision->collided) {
+      continue;
     }
+
+    const double speed = uavs_[i]->getState().v.norm();
+
+    if (ground_from_simulator_ && isLanding(collision->impact_point.z, surface_[i], speed, max_touchdown_speed)) {
+      RCLCPP_INFO_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "%s touched the ground at [%.2f, %.2f, %.2f], %.2f m/s", uav_names[i].c_str(),
+                           collision->impact_point.x, collision->impact_point.y, collision->impact_point.z, speed);
+      continue;
+    }
+
+    RCLCPP_WARN(node_->get_logger(), "%s crashed at [%.2f, %.2f, %.2f], %.2f m/s", uav_names[i].c_str(), collision->impact_point.x, collision->impact_point.y,
+                collision->impact_point.z, speed);
+    uavs_[i]->crash();
+  }
+}
+
+//}
+
+/* spawnRobot() //{ */
+
+// resting the airframe on the surface measures how high its base link sits above the ground
+void FlightforgeSimulator::spawnRobot(const size_t uav, const std::string& frame) {
+
+  const std::string& uav_name = uav_names[uav];
+  const auto         asked    = *robotState(uav).base;
+
+  double surface = std::numeric_limits<double>::quiet_NaN();
+
+  if (ground_from_simulator_) {
+
+    const auto heights = ff_sim_->GetSurfaceHeight({flightforge::Vec3{asked.position.x, asked.position.y, asked.position.z + 1.0}});
+
+    if (!heights) {
+      RCLCPP_ERROR(node_->get_logger(), "could not query the ground under %s: %s", uav_name.c_str(), heights.error.c_str());
+      rclcpp::shutdown();
+      exit(1);
+    }
+
+    surface = (*heights)[0];
+
+    if (!std::isfinite(surface)) {
+      RCLCPP_WARN(node_->get_logger(), "there is no ground under %s's spawn, it has none until it flies over some", uav_name.c_str());
+    }
+  }
+
+  flightforge::Pose spawn = asked;
+
+  if (std::isfinite(surface)) {
+    spawn.position.z = surface;
+  }
+
+  RCLCPP_INFO(node_->get_logger(), "spawning %s, a %s, at [%.2f, %.2f, %.2f]", uav_name.c_str(), frame.c_str(), spawn.position.x, spawn.position.y,
+              spawn.position.z);
+
+  const auto spawned = ff_sim_->SpawnRobot(frame, spawn, uav_name);
+
+  if (!spawned) {
+    RCLCPP_ERROR(node_->get_logger(), "could not spawn %s: %s", uav_name.c_str(), spawned.error.c_str());
+    rclcpp::shutdown();
+    exit(1);
+  }
+
+  RCLCPP_INFO(node_->get_logger(), "%s is robot %d", uav_name.c_str(), *spawned);
+
+  ff_robots_.push_back(std::make_shared<flightforge::RobotClient>(ff_pose_sim_->SharedConnection(), *spawned));
+
+  if (!std::isfinite(surface)) {
+    return;
+  }
+
+  const auto rested = ff_robots_[uav]->GetState();
+
+  if (!rested || !rested->state.base) {
+    RCLCPP_ERROR(node_->get_logger(), "could not read where %s came to rest: %s", uav_name.c_str(), rested.error.c_str());
+    rclcpp::shutdown();
+    exit(1);
+  }
+
+  surface_[uav]   = surface;
+  clearance_[uav] = std::max(0.0, rested->state.base->position.z - surface);
+
+  RCLCPP_INFO(node_->get_logger(), "%s rests %.3f m above the ground at %.3f m", uav_name.c_str(), clearance_[uav], surface);
+
+  if (asked.position.z > surface + clearance_[uav]) {
+    flightforge::RobotState lifted;
+    lifted.base = asked;
+    if (const auto moved = ff_robots_[uav]->SetState(lifted, false); !moved) {
+      RCLCPP_ERROR(node_->get_logger(), "could not lift %s to its spawn height: %s", uav_name.c_str(), moved.error.c_str());
+    }
+  }
+}
+
+//}
+
+/* groundPose() //{ */
+
+FlightforgeSimulator::GroundPose FlightforgeSimulator::groundPose(const size_t uav) {
+
+  const auto state = uavs_[uav]->getState();
+
+  return GroundPose{state.x(0), state.x(1), state.x(2), std::atan2(state.R(1, 0), state.R(0, 0))};
+}
+
+//}
+
+/* requestGround() //{ */
+
+void FlightforgeSimulator::requestGround(void) {
+
+  {
+    std::scoped_lock lock(mutex_ground_);
+
+    ground_poses_.resize(uavs_.size());
+    for (size_t i = 0; i < uavs_.size(); i++) {
+      ground_poses_[i] = groundPose(i);
+    }
+
+    ground_request_ = true;
+  }
+
+  cv_ground_.notify_one();
+}
+
+//}
+
+/* applyGround() //{ */
+
+void FlightforgeSimulator::applyGround(void) {
+
+  {
+    std::scoped_lock lock(mutex_ground_);
+    surface_ = ground_surfaces_;
+  }
+
+  for (size_t i = 0; i < uavs_.size(); i++) {
+
+    const double ground_z = std::isfinite(surface_[i]) ? surface_[i] + clearance_[i] : -std::numeric_limits<double>::infinity();
+
+    if (ground_z != applied_ground_z_[i]) {
+      uavs_[i]->setGroundZ(ground_z);
+      applied_ground_z_[i] = ground_z;
+    }
+  }
+}
+
+//}
+
+/* groundWorker() //{ */
+
+// asks for one step's poses at a time and drops the ones that pile up meanwhile, so it runs at most at the simulation rate
+void FlightforgeSimulator::groundWorker(void) {
+
+  std::vector<GroundPose> poses;
+  std::vector<double>     radius(uavs_.size());
+
+  for (size_t i = 0; i < uavs_.size(); i++) {
+    radius[i] = uavs_[i]->getParams().arm_length;
+  }
+
+  while (true) {
+
+    {
+      std::unique_lock lock(mutex_ground_);
+      cv_ground_.wait(lock, [this]() { return ground_stop_ || ground_request_; });
+
+      if (ground_stop_) {
+        return;
+      }
+
+      ground_request_ = false;
+      poses           = ground_poses_;
+    }
+
+    std::vector<flightforge::Vec3> points;
+    points.reserve(poses.size() * kFootprintPoints);
+
+    for (size_t i = 0; i < poses.size(); i++) {
+      for (const auto& p : footprintPoints(poses[i].x, poses[i].y, poses[i].z - clearance_[i], poses[i].yaw, radius[i])) {
+        points.push_back(flightforge::Vec3{p[0], p[1], p[2]});
+      }
+    }
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto heights = ff_ground_sim_->GetSurfaceHeight(points);
+    const double took  = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+
+    if (!heights) {
+      RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "could not query the ground: %s", heights.error.c_str());
+      continue;
+    }
+
+    std::vector<double> surfaces(poses.size());
+    for (size_t i = 0; i < poses.size(); i++) {
+      surfaces[i] = highestSurface(heights->data() + i * kFootprintPoints, kFootprintPoints);
+    }
+
+    std::scoped_lock lock(mutex_ground_);
+    ground_surfaces_ = std::move(surfaces);
+    ground_queries_++;
+    ground_latency_ += took;
   }
 }
 
@@ -1701,6 +1996,16 @@ void FlightforgeSimulator::dispatchDueSensors(double sim_time) {
 void FlightforgeSimulator::onShutdown(void) {
 
   shutting_down_ = true;
+
+  {
+    std::scoped_lock lock(mutex_ground_);
+    ground_stop_ = true;
+  }
+  cv_ground_.notify_one();
+
+  if (ground_thread_.joinable()) {
+    ground_thread_.join();
+  }
 
   for (auto& w : workers_) {
     {
