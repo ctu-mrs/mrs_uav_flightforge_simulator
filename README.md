@@ -89,6 +89,8 @@ The ROS node has two ways of keeping the simulator and ROS time together, chosen
 
 In lockstep the simulator advances on a grid: every physics step if a sensor runs at `simulation_rate`, otherwise as coarsely as the fastest sensor allows, and never below 30 Hz. A sensor's rate holds on average, with its stamps on grid points. Raise `simulation_rate` for a finer grid.
 
+Cameras render at their own `rate`, which the node sends to the simulator as `capture_rate`, not on every simulator frame. In free running a fetch whose frame has not landed yet waits for it, up to half a period, instead of skipping the slot.
+
 ## Ground, landing and crashes
 
 - `ground/enabled: true` and `ground/from_simulator: true` (default): each UAV's ground is the highest surface FlightForge finds straight below the centre and the corners of its footprint (a square of half-side `arm_length`), asked for every UAV in one request on its own connection, at most once per simulation step (API 1.1). The node spawns each UAV on the surface under its spawn point and keeps the height the simulator rested it at, so it lands where its airframe touches: floors, boxes, rooftops, terrain. Where nothing is below, there is no ground.
