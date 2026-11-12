@@ -26,6 +26,9 @@ mrs_uav_flightforge_simulator:
     # if crash==false, then the collisions are elastic
     rebounce: 100.0
 
+    # touching the ground under the UAV no faster than this is a landing, faster is a crash
+    max_touchdown_speed: 2.0 # [m/s]
+
   # when true, the simulation time will get initialized from wall time
   sim_time_from_wall_time: true
 
@@ -238,7 +241,9 @@ individual_takeoff_platform:
 
 ground:
   enabled: true
-  z: 0.0 # [m]
+  z: 0.0 # [m] the flat ground when from_simulator is false
+  # the ground under each UAV is the surface FlightForge finds below it, and the UAV rests where its airframe touches it
+  from_simulator: true
 
 iterate_without_input: true
 

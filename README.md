@@ -89,6 +89,14 @@ The ROS node has two ways of keeping the simulator and ROS time together, chosen
 
 In lockstep the simulator advances on a grid: every physics step if a sensor runs at `simulation_rate`, otherwise as coarsely as the fastest sensor allows, and never below 30 Hz. A sensor's rate holds on average, with its stamps on grid points. Raise `simulation_rate` for a finer grid.
 
+## Ground, landing and crashes
+
+- `ground/enabled: true` and `ground/from_simulator: true` (default): each UAV's ground is the highest surface FlightForge finds straight below the centre and the corners of its footprint (a square of half-side `arm_length`), asked for every UAV in one request on its own connection, at most once per simulation step (API 1.1). The node spawns each UAV on the surface under its spawn point and keeps the height the simulator rested it at, so it lands where its airframe touches: floors, boxes, rooftops, terrain. Where nothing is below, there is no ground.
+- `ground/from_simulator: false`: the dynamics' flat ground at `ground/z`. `ground/enabled: false`: no ground at all.
+- `individual_takeoff_platform/enabled` holds a UAV at its spawn height until its thrust passes 90 % of hover; with the ground from the simulator it only matters for a spawn in the air.
+- With `collisions/enabled` and `collisions/crash`, a UAV crashes when it meets the ground faster than `collisions/max_touchdown_speed` (2 m/s by default), and on any collision the simulator reports other than touching the ground under it (no more than 5 cm above it) at most that fast.
+- The ground from the simulator needs `UavSystemRos::setGroundZ()` from `mrs_multirotor_simulator`, which is not upstream yet.
+
 ## Device presets
 
 Real sensors come from the simulator's device library, with their datasheet parameters, mounting offsets and housing meshes. Add them under `devices` in your custom config:
