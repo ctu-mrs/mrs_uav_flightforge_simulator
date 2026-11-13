@@ -51,17 +51,19 @@ mrs_uav_flightforge_simulator:
 
       enabled: true
 
-      enable_hdr: true
+      rate: 30
+
+      enable_hdr: false
       enable_temporal_aa: false
-      enable_raytracing: true
+      enable_raytracing: false
 
       enable_motion_blur: true
       motion_blur_amount: 0.5 # [0.0 - 1.0]
       motion_blur_distortion: 50 # [0-100]
 
-      width: 800 # [px]
-      height: 600 # [px]
-      fov: 80.0 # [deg]
+      width: 1280 # [px]
+      height: 800 # [px]
+      fov: 60.0 # [deg]
 
       rgb_segmented:
         enabled: false
@@ -73,14 +75,45 @@ mrs_uav_flightforge_simulator:
         z: 0.0 # [m]
 
       rotation:
-        pitch: 25.0 # [deg]
+        pitch: 0.0 # [deg]
 
       depth:
         enabled: false
 
     stereo:
       enabled: false
-      rate: 10.0
+
+      rate: 30.0 # [Hz]
+
+      width: 640 # [px]
+      height: 480 # [px]
+      fov: 90.0 # [deg]
+
+      # Left camera configuration
+      left: 
+        offset_x: 0.6 # [m]
+        offset_y: 0.0375 # [m]
+        offset_z: 0.0 # [m]
+
+        # TODO which Tait-Bryan convention is it in?
+        rotation_pitch: 40.0 # [deg]
+        rotation_yaw: 0.0 # [deg]
+        rotation_roll: 0.0 # [deg]
+
+      # Right camera configuration
+      right:
+        offset_x: 0.6 # [m]
+        offset_y: -0.0375 # [m]
+        offset_z: 0.0 # [m]
+
+        # TODO which Tait-Bryan convention is it in?
+        rotation_pitch: 40.0 # [deg]
+        rotation_yaw: 0.0 # [deg]
+        rotation_roll: 0.0 # [deg]
+
+      enable_hdr: true
+      enable_temporal_aa: true
+      enable_raytracing: true
 
   graphics_settings: "low"
 
