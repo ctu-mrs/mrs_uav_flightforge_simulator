@@ -3,6 +3,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <mrs_multirotor_simulator/uav_system_ros.h>
+#include <mrs_multirotor_simulator/imu_shaping_filters.h>
 
 #include <rosgraph_msgs/msg/clock.hpp>
 
@@ -186,6 +187,9 @@ private:
   // | ------------------------- system ------------------------- |
 
   std::vector<std::unique_ptr<mrs_multirotor_simulator::UavSystemRos>> uavs_;
+
+  // IMU noise shaping filters, shared by all the UAVs
+  std::shared_ptr<mrs_multirotor_simulator::ImuShapingFilters> imu_shaping_filters_;
 
   // | ------------------------- methods ------------------------ |
 
@@ -721,6 +725,9 @@ void FlightforgeSimulator::timerInit() {
 
   dynparam_mgr_->get_param_provider().copyYamls(param_loader.getParamProvider());
 
+  // the IMU noise shaping filters are shared by all the UAVs and loaded lazily, when the noise is enabled
+  imu_shaping_filters_ = std::make_shared<mrs_multirotor_simulator::ImuShapingFilters>(node_, param_loader);
+
   // | ----------------------- load params ---------------------- |
 
   std::string yaml_prefix = "mrs_uav_flightforge_simulator/";
@@ -925,6 +932,7 @@ void FlightforgeSimulator::timerInit() {
     common_handlers.node                  = node_;
     common_handlers.uav_name              = uav_name;
     common_handlers.transform_broadcaster = tf_broadcaster_;
+    common_handlers.imu_shaping_filters   = imu_shaping_filters_;
 
     uavs_.push_back(std::make_unique<mrs_multirotor_simulator::UavSystemRos>(common_handlers));
   }

@@ -61,6 +61,8 @@ def generate_launch_description():
         pkg_share_path + '/config/flightforge_simulator.yaml',
         # uavs to load
         pkg_share_path + '/config/uavs.yaml',
+        # IMU noise shaping filters, shared by all the UAVs
+        mrs_simulator_path + '/config/imu_noise_filters.yaml',
     ]
 
     mrs_multirotor_simulator_uav_configs = [
@@ -74,6 +76,8 @@ def generate_launch_description():
         mrs_simulator_path + '/config/controllers/position_controller.yaml',
         mrs_simulator_path + '/config/controllers/velocity_controller.yaml',
         mrs_simulator_path + '/config/controllers/mixer.yaml',
+        # IMUs
+        mrs_simulator_path + '/config/imu.yaml',
         # the UAV configs
         mrs_simulator_path + '/config/uavs/a300.yaml',
         mrs_simulator_path + '/config/uavs/f330.yaml',
