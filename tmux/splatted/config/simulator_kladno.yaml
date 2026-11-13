@@ -12,7 +12,7 @@ uav1:
   type: "x500"
   spawn:
     x: 0.0
-    y: 50.0
+    y: 0.0
     z: 0.0
     heading: 0.0
 
