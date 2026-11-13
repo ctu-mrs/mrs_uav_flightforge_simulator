@@ -51,7 +51,6 @@ public:
 
   mrs_msgs::msg::HwApiCapabilities _capabilities_;
 
-  bool _feedforward_enabled_;
 
   double      _utm_x_;
   double      _utm_y_;
@@ -169,24 +168,16 @@ void Api::initialize(const rclcpp::Node::SharedPtr& node, std::shared_ptr<mrs_ua
 
   std::string custom_config_path;
 
-  common_handlers_->main_param_loader->loadParam("custom_config", custom_config_path);
+  std::shared_ptr<mrs_lib::ParamLoader> param_loader = common_handlers_->plugin_param_loader;
 
-  std::vector<std::string> config_files;
-  common_handlers_->main_param_loader->loadParamReusable("configs", config_files);
+  param_loader->loadParam("input_timeout", _input_timeout_);
 
-  for (auto config_file : config_files) {
-    RCLCPP_INFO(node_->get_logger(), "loading config file '%s'", config_file.c_str());
-    common_handlers_->main_param_loader->addYamlFile(config_file);
-  }
+  param_loader->loadParam("gnss/utm_x", _utm_x_);
+  param_loader->loadParam("gnss/utm_y", _utm_y_);
+  param_loader->loadParam("gnss/utm_zone", _utm_zone_);
+  param_loader->loadParam("gnss/amsl", _amsl_);
 
-  common_handlers_->main_param_loader->loadParam("input_timeout", _input_timeout_);
-
-  common_handlers_->main_param_loader->loadParam("gnss/utm_x", _utm_x_);
-  common_handlers_->main_param_loader->loadParam("gnss/utm_y", _utm_y_);
-  common_handlers_->main_param_loader->loadParam("gnss/utm_zone", _utm_zone_);
-  common_handlers_->main_param_loader->loadParam("gnss/amsl", _amsl_);
-
-  if (!common_handlers_->main_param_loader->loadedSuccessfully()) {
+  if (!param_loader->loadedSuccessfully()) {
     RCLCPP_ERROR(node_->get_logger(), "Could not load all parameters!");
     rclcpp::shutdown();
     exit(1);
@@ -248,7 +239,7 @@ void Api::initialize(const rclcpp::Node::SharedPtr& node, std::shared_ptr<mrs_ua
     ph_position_cmd_ = mrs_lib::PublisherHandler<mrs_msgs::msg::HwApiPositionCmd>(node_, "~/simulator_position_cmd_out");
   }
 
-  if (_feedforward_enabled_) {
+  if (_capabilities_.accepts_feedforward) {
     ph_tracker_cmd_ = mrs_lib::PublisherHandler<mrs_msgs::msg::TrackerCommand>(node_, "~/simulator_tracker_cmd_out");
   }
 
@@ -606,7 +597,7 @@ void Api::callbackTrackerCmd(const mrs_msgs::msg::TrackerCommand::ConstSharedPtr
 
   RCLCPP_INFO_ONCE(node_->get_logger(), "getting tracker cmd");
 
-  if (offboard_) {
+  if (offboard_ && _capabilities_.accepts_feedforward) {
     ph_tracker_cmd_.publish(*msg);
   }
 }

@@ -228,6 +228,7 @@ private:
 
   double                   flightforge_fps_ = 0;
   std::string              flightforge_world_level_name_enum_;
+  bool                     flightforge_custom_level_ = false;
   std::string              flightforge_graphics_settings_enum_;
   int                      flightforge_forest_density_     = 5;
   int                      flightforge_forest_hilly_level_ = 3;
@@ -901,6 +902,7 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "daytime/hour", daytime_hour_);
   param_loader.loadParam(yaml_prefix + "daytime/minute", daytime_minute_);
   param_loader.loadParam(yaml_prefix + "world_name", flightforge_world_level_name_enum_);
+  param_loader.loadParam(yaml_prefix + "custom_level", flightforge_custom_level_);
 
   if (!param_loader.loadedSuccessfully() || !dynparam_mgr_->loaded_successfully()) {
     RCLCPP_ERROR(node_->get_logger(), "could not load all parameters!");
@@ -973,21 +975,29 @@ void FlightforgeSimulator::timerInit() {
     rclcpp::shutdown();
   }
 
-  auto name_to_id_map = ueds_connector::WorldName::Name2Id();
-  auto it             = name_to_id_map.find(flightforge_world_level_name_enum_);
-  if (it == name_to_id_map.end()) {
-    std::string error_msg = "Unknown world_name: '" + flightforge_world_level_name_enum_ + "'. Available worlds: ";
-    for (const auto& pair : name_to_id_map) {
-      error_msg += "'" + pair.first + "' ";
-    }
-    throw std::invalid_argument(error_msg);
-  }
-  res = ueds_game_controller_->SwitchWorldLevel(ueds_connector::WorldName::Name2Id().at(flightforge_world_level_name_enum_));
+  if (flightforge_custom_level_) {
 
-  if (res) {
-    RCLCPP_INFO(node_->get_logger(), "World was switched succesfully.");
+    RCLCPP_INFO(node_->get_logger(), "custom_level is enabled, not switching the world level, using the currently loaded level");
+
   } else {
-    RCLCPP_ERROR(node_->get_logger(), "World was not switched succesfully");
+
+    auto name_to_id_map = ueds_connector::WorldName::Name2Id();
+    auto it             = name_to_id_map.find(flightforge_world_level_name_enum_);
+    if (it == name_to_id_map.end()) {
+      std::string error_msg = "Unknown world_name: '" + flightforge_world_level_name_enum_ + "'. Available worlds: ";
+      for (const auto& pair : name_to_id_map) {
+        error_msg += "'" + pair.first + "' ";
+      }
+      throw std::invalid_argument(error_msg);
+    }
+
+    res = ueds_game_controller_->SwitchWorldLevel(it->second);
+
+    if (res) {
+      RCLCPP_INFO(node_->get_logger(), "World was switched succesfully.");
+    } else {
+      RCLCPP_ERROR(node_->get_logger(), "World was not switched succesfully");
+    }
   }
 
   res = ueds_game_controller_->Disconnect();

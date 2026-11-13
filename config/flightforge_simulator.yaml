@@ -42,6 +42,9 @@ mrs_uav_flightforge_simulator:
   # 6 -  TEMESVAR (only in the full version)
   world_name: "valley"
 
+  # when true, the world level is not switched and the level currently loaded in the binary is used (world_name is ignored)
+  custom_level: false
+
   #  {"sunny", 0},
   #  {"cloudy", 1},
   #  {"foggy", 2},

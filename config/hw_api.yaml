@@ -18,14 +18,14 @@ mrs_uav_hw_api:
   outputs:
     distance_sensor:      true
     gnss:                 true
-    gnss_status:          true
+    gnss_status:          false
     rtk:                  true
     imu:                  true
     altitude:             true
     magnetometer_heading: true
-    magnetic_field:       true
+    magnetic_field:       false
     rc_channels:          true
-    rc_rssi:              true
+    rc_rssi:              false
     battery_state:        true
     position:             true
     orientation:          true
