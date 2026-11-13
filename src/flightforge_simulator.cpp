@@ -9,6 +9,9 @@
 
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/quaternion_stamped.hpp>
+#include <geometry_msgs/msg/pose.hpp>
+
+#include <Eigen/Geometry>
 
 #include <mrs_lib/param_loader.h>
 #include <mrs_lib/publisher_handler.h>
@@ -350,6 +353,43 @@ private:
 
   void callbackStereoEnable(const bool& param_value);
   void callbackStereoRate(const double& param_value);
+
+  // | -------------- stereo extrinsics adjustment -------------- |
+
+  // nominal poses of the stereo cameras' optical frames in the fcu frame, as loaded from the config
+  Eigen::Isometry3d stereo_nominal_left_  = Eigen::Isometry3d::Identity();
+  Eigen::Isometry3d stereo_nominal_right_ = Eigen::Isometry3d::Identity();
+
+  // per-UAV relative corrections, expressed in the nominal optical frame of each camera
+  // T_fcu_cam = T_fcu_cam_nominal * T_correction
+  std::vector<Eigen::Isometry3d> stereo_correction_left_;
+  std::vector<Eigen::Isometry3d> stereo_correction_right_;
+  std::mutex                     mutex_stereo_extrinsics_;
+
+  // when true, the TFs and the camera_info reflect the adjusted extrinsics,
+  // when false, they keep the nominal ones (useful for simulating a decalibrated camera)
+  bool _stereo_extrinsics_update_tf_ = true;
+
+  rclcpp::CallbackGroup::SharedPtr                                       cbgrp_stereo_extrinsics_;
+  std::vector<rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr> sub_stereo_extrinsics_left_;
+  std::vector<rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr> sub_stereo_extrinsics_right_;
+
+  void callbackStereoExtrinsics(const geometry_msgs::msg::Pose::ConstSharedPtr msg, const size_t uav_idx, const bool left);
+
+  static Eigen::Isometry3d stereoNominalPose(const double x, const double y, const double z, const double roll_deg, const double pitch_deg,
+                                             const double yaw_deg);
+
+  // actual pose of the camera (nominal * correction), the caller has to hold mutex_stereo_extrinsics_
+  Eigen::Isometry3d stereoActualPose(const size_t uav_idx, const bool left) const;
+
+  // pose that is published in the TF and camera_info, the caller has to hold mutex_stereo_extrinsics_
+  Eigen::Isometry3d stereoPublishedPose(const size_t uav_idx, const bool left) const;
+
+  // the caller has to hold mutex_stereo_extrinsics_
+  Serializable::Drone::StereoCameraConfig stereoCameraConfig(const size_t uav_idx) const;
+
+  // the caller has to hold mutex_stereo_extrinsics_
+  geometry_msgs::msg::TransformStamped stereoTf(const size_t uav_idx, const bool left) const;
 
   /*segmentation decode array//{*/
   // clang-format off
@@ -712,6 +752,8 @@ void FlightforgeSimulator::timerInit() {
   cbgrp_main_   = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   cbgrp_status_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
+  cbgrp_stereo_extrinsics_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
   mrs_lib::ParamLoader param_loader(node_, node_->get_name());
 
   dynparam_mgr_ = std::make_shared<mrs_lib::DynparamMgr>(node_, mutex_drs_params_);
@@ -909,6 +951,12 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "sensors/stereo/right/rotation_pitch", stereo_rotation_pitch_right_);
   param_loader.loadParam(yaml_prefix + "sensors/stereo/right/rotation_roll", stereo_rotation_roll_right_);
   param_loader.loadParam(yaml_prefix + "sensors/stereo/right/rotation_yaw", stereo_rotation_yaw_right_);
+  param_loader.loadParam(yaml_prefix + "sensors/stereo/extrinsics_adjustment/update_tf", _stereo_extrinsics_update_tf_);
+
+  stereo_nominal_left_  = stereoNominalPose(stereo_offset_x_left_, stereo_offset_y_left_, stereo_offset_z_left_, stereo_rotation_roll_left_,
+                                            stereo_rotation_pitch_left_, stereo_rotation_yaw_left_);
+  stereo_nominal_right_ = stereoNominalPose(stereo_offset_x_right_, stereo_offset_y_right_, stereo_offset_z_right_, stereo_rotation_roll_right_,
+                                            stereo_rotation_pitch_right_, stereo_rotation_yaw_right_);
 
   param_loader.loadParam(yaml_prefix + "weather_type", weather_type_);
   param_loader.loadParam(yaml_prefix + "graphics_settings", flightforge_graphics_settings_enum_);
@@ -1169,6 +1217,21 @@ void FlightforgeSimulator::timerInit() {
     ph_stereo_left_camera_info_.push_back(mrs_lib::PublisherHandler<sensor_msgs::msg::CameraInfo>(node_, "/" + uav_name + "/stereo/left/camera_info"));
     ph_stereo_right_camera_info_.push_back(mrs_lib::PublisherHandler<sensor_msgs::msg::CameraInfo>(node_, "/" + uav_name + "/stereo/right/camera_info"));
 
+    // | ------------ stereo extrinsics adjustment subs ----------- |
+
+    {
+      rclcpp::SubscriptionOptions sub_opts;
+      sub_opts.callback_group = cbgrp_stereo_extrinsics_;
+
+      sub_stereo_extrinsics_left_.push_back(node_->create_subscription<geometry_msgs::msg::Pose>(
+          "/" + uav_name + "/stereo/left/extrinsics_adjustment_in", 10,
+          [this, i](const geometry_msgs::msg::Pose::ConstSharedPtr msg) { callbackStereoExtrinsics(msg, i, true); }, sub_opts));
+
+      sub_stereo_extrinsics_right_.push_back(node_->create_subscription<geometry_msgs::msg::Pose>(
+          "/" + uav_name + "/stereo/right/extrinsics_adjustment_in", 10,
+          [this, i](const geometry_msgs::msg::Pose::ConstSharedPtr msg) { callbackStereoExtrinsics(msg, i, false); }, sub_opts));
+    }
+
     // | -------------------- set LiDAR config -------------------- |
     {
       ueds_connector::LidarConfig lidarConfig{};
@@ -1228,27 +1291,14 @@ void FlightforgeSimulator::timerInit() {
     {
       Serializable::Drone::StereoCameraConfig cameraConfig{};
 
-      cameraConfig.width_  = stereo_width_;
-      cameraConfig.height_ = stereo_height_;
-      cameraConfig.fov_    = stereo_fov_;
+      {
+        std::scoped_lock lock(mutex_stereo_extrinsics_);
 
-      cameraConfig.offset_x_left_       = stereo_offset_x_left_ * 100.0;
-      cameraConfig.offset_y_left_       = -stereo_offset_y_left_ * 100.0;
-      cameraConfig.offset_z_left_       = stereo_offset_z_left_ * 100.0;
-      cameraConfig.rotation_pitch_left_ = -stereo_rotation_pitch_left_;
-      cameraConfig.rotation_roll_left_  = stereo_rotation_roll_left_;
-      cameraConfig.rotation_yaw_left_   = stereo_rotation_yaw_left_;
+        stereo_correction_left_.push_back(Eigen::Isometry3d::Identity());
+        stereo_correction_right_.push_back(Eigen::Isometry3d::Identity());
 
-      cameraConfig.offset_x_right_       = stereo_offset_x_right_ * 100.0;
-      cameraConfig.offset_y_right_       = -stereo_offset_y_right_ * 100.0;
-      cameraConfig.offset_z_right_       = stereo_offset_z_right_ * 100.0;
-      cameraConfig.rotation_pitch_right_ = -stereo_rotation_pitch_right_;
-      cameraConfig.rotation_roll_right_  = stereo_rotation_roll_right_;
-      cameraConfig.rotation_yaw_right_   = stereo_rotation_yaw_right_;
-
-      cameraConfig.enable_raytracing_  = stereo_enable_raytracing_;
-      cameraConfig.enable_hdr_         = stereo_enable_hdr_;
-      cameraConfig.enable_temporal_aa_ = stereo_enable_temporal_aa_;
+        cameraConfig = stereoCameraConfig(i);
+      }
 
       const auto res = ueds_connectors_[i]->SetStereoCameraConfig(cameraConfig);
 
@@ -2006,7 +2056,7 @@ void FlightforgeSimulator::timerRgb() {
     }
 
     if (abs(stamp - last_rgb_ue_stamp_.at(i)) < 0.001) {
-      return;
+      continue;
     }
 
     last_rgb_ue_stamp_.at(i) = stamp;
@@ -2065,7 +2115,7 @@ void FlightforgeSimulator::timerStereo() {
     }
 
     if (abs(stamp - last_stereo_ue_stamp_.at(i)) < 0.001) {
-      return;
+      continue;
     }
 
     last_stereo_ue_stamp_.at(i) = stamp;
@@ -2109,8 +2159,18 @@ void FlightforgeSimulator::timerStereo() {
 
       camera_info.header = msg_right->header;
 
-      double stereo_baseline = std::abs(stereo_offset_y_left_ - stereo_offset_y_right_);
-      camera_info.p[3]       = -camera_info.p[0] * stereo_baseline;
+      double stereo_baseline;
+
+      {
+        std::scoped_lock lock(mutex_stereo_extrinsics_);
+
+        // position of the right camera expressed in the left camera's optical frame
+        const Eigen::Isometry3d T_left_right = stereoPublishedPose(i, true).inverse() * stereoPublishedPose(i, false);
+
+        stereo_baseline = std::abs(T_left_right.translation().x());
+      }
+
+      camera_info.p[3] = -camera_info.p[0] * stereo_baseline;
 
       ph_stereo_right_camera_info_[i].publish(camera_info);
     }
@@ -2143,7 +2203,7 @@ void FlightforgeSimulator::timerRgbSegmented() {
     }
 
     if (abs(stamp - last_rgb_seg_ue_stamp_.at(i)) < 0.001) {
-      return;
+      continue;
     }
 
     last_rgb_seg_ue_stamp_.at(i) = stamp;
@@ -2691,6 +2751,193 @@ void FlightforgeSimulator::checkForCrash(void) {
 
 //}
 
+// | --------------- stereo extrinsics adjustment --------------- |
+
+/* callbackStereoExtrinsics() //{ */
+
+void FlightforgeSimulator::callbackStereoExtrinsics(const geometry_msgs::msg::Pose::ConstSharedPtr msg, const size_t uav_idx, const bool left) {
+
+  if (!is_initialized_) {
+    return;
+  }
+
+  const std::string side = left ? "left" : "right";
+
+  const Eigen::Vector3d t(msg->position.x, msg->position.y, msg->position.z);
+  Eigen::Quaterniond    q(msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
+
+  if (!t.allFinite() || !q.coeffs().allFinite() || q.norm() < 1e-6) {
+    RCLCPP_WARN(node_->get_logger(), "[uav%lu]: invalid stereo %s extrinsics adjustment (non-finite values or zero quaternion), ignoring", uav_idx + 1,
+                side.c_str());
+    return;
+  }
+
+  q.normalize();
+
+  Eigen::Isometry3d correction = Eigen::Isometry3d::Identity();
+  correction.linear()          = q.toRotationMatrix();
+  correction.translation()     = t;
+
+  Serializable::Drone::StereoCameraConfig camera_config;
+  geometry_msgs::msg::TransformStamped    tf;
+  Eigen::Isometry3d                       T_fcu_cam;
+
+  {
+    std::scoped_lock lock(mutex_stereo_extrinsics_);
+
+    if (left) {
+      stereo_correction_left_.at(uav_idx) = correction;
+    } else {
+      stereo_correction_right_.at(uav_idx) = correction;
+    }
+
+    camera_config = stereoCameraConfig(uav_idx);
+    tf            = stereoTf(uav_idx, left);
+    T_fcu_cam     = stereoActualPose(uav_idx, left);
+  }
+
+  bool res;
+
+  {
+    std::scoped_lock lock(mutex_flightforge_);
+
+    res = ueds_connectors_.at(uav_idx)->SetStereoCameraConfig(camera_config);
+  }
+
+  if (!res) {
+    RCLCPP_ERROR(node_->get_logger(), "[uav%lu]: failed to apply the stereo %s extrinsics adjustment to FlightForge", uav_idx + 1, side.c_str());
+    return;
+  }
+
+  if (_stereo_extrinsics_update_tf_) {
+    try {
+      static_broadcaster_->sendTransform(tf);
+    }
+    catch (...) {
+      RCLCPP_ERROR(node_->get_logger(), "[uav%lu]: could not publish the adjusted stereo %s tf", uav_idx + 1, side.c_str());
+    }
+  }
+
+  const Eigen::Quaterniond q_fcu_cam(T_fcu_cam.linear());
+
+  RCLCPP_INFO(node_->get_logger(), "[uav%lu]: stereo %s extrinsics adjusted, fcu->cam: t = [%.4f, %.4f, %.4f], q (xyzw) = [%.4f, %.4f, %.4f, %.4f]%s",
+              uav_idx + 1, side.c_str(), T_fcu_cam.translation().x(), T_fcu_cam.translation().y(), T_fcu_cam.translation().z(), q_fcu_cam.x(),
+              q_fcu_cam.y(), q_fcu_cam.z(), q_fcu_cam.w(), _stereo_extrinsics_update_tf_ ? "" : " (TF kept nominal)");
+}
+
+//}
+
+/* stereoNominalPose() //{ */
+
+Eigen::Isometry3d FlightforgeSimulator::stereoNominalPose(const double x, const double y, const double z, const double roll_deg, const double pitch_deg,
+                                                          const double yaw_deg) {
+
+  // rotation from the camera body frame (x forward) to the optical frame (z forward, x right, y down)
+  const Eigen::Matrix3d optical = Eigen::Quaterniond(-0.5, 0.5, -0.5, 0.5).toRotationMatrix();
+
+  const Eigen::Matrix3d body = mrs_lib::AttitudeConverter(M_PI * (roll_deg / 180.0), M_PI * (pitch_deg / 180.0), M_PI * (yaw_deg / 180.0));
+
+  Eigen::Isometry3d T = Eigen::Isometry3d::Identity();
+  T.linear()          = body * optical;
+  T.translation()     = Eigen::Vector3d(x, y, z);
+
+  return T;
+}
+
+//}
+
+/* stereoActualPose() //{ */
+
+Eigen::Isometry3d FlightforgeSimulator::stereoActualPose(const size_t uav_idx, const bool left) const {
+
+  if (left) {
+    return stereo_nominal_left_ * stereo_correction_left_.at(uav_idx);
+  } else {
+    return stereo_nominal_right_ * stereo_correction_right_.at(uav_idx);
+  }
+}
+
+//}
+
+/* stereoPublishedPose() //{ */
+
+Eigen::Isometry3d FlightforgeSimulator::stereoPublishedPose(const size_t uav_idx, const bool left) const {
+
+  if (_stereo_extrinsics_update_tf_) {
+    return stereoActualPose(uav_idx, left);
+  }
+
+  return left ? stereo_nominal_left_ : stereo_nominal_right_;
+}
+
+//}
+
+/* stereoCameraConfig() //{ */
+
+Serializable::Drone::StereoCameraConfig FlightforgeSimulator::stereoCameraConfig(const size_t uav_idx) const {
+
+  Serializable::Drone::StereoCameraConfig config{};
+
+  config.width_  = stereo_width_;
+  config.height_ = stereo_height_;
+  config.fov_    = stereo_fov_;
+
+  config.enable_raytracing_  = stereo_enable_raytracing_;
+  config.enable_hdr_         = stereo_enable_hdr_;
+  config.enable_temporal_aa_ = stereo_enable_temporal_aa_;
+
+  // inverse of stereoNominalPose(): strip the optical rotation and convert to the
+  // extrinsic RPY + offset, then to the Unreal convention (cm, left-handed: -y, -pitch)
+  const Eigen::Matrix3d optical = Eigen::Quaterniond(-0.5, 0.5, -0.5, 0.5).toRotationMatrix();
+
+  const auto toUnreal = [&optical](const Eigen::Isometry3d& T, double& ox, double& oy, double& oz, double& pitch, double& yaw, double& roll) {
+    const Eigen::Matrix3d body = T.linear() * optical.transpose();
+
+    const auto [r, p, y] = mrs_lib::AttitudeConverter(body).getExtrinsicRPY();
+
+    ox = T.translation().x() * 100.0;
+    oy = -T.translation().y() * 100.0;
+    oz = T.translation().z() * 100.0;
+
+    pitch = -p * 180.0 / M_PI;
+    yaw   = y * 180.0 / M_PI;
+    roll  = r * 180.0 / M_PI;
+  };
+
+  toUnreal(stereoActualPose(uav_idx, true), config.offset_x_left_, config.offset_y_left_, config.offset_z_left_, config.rotation_pitch_left_,
+           config.rotation_yaw_left_, config.rotation_roll_left_);
+
+  toUnreal(stereoActualPose(uav_idx, false), config.offset_x_right_, config.offset_y_right_, config.offset_z_right_, config.rotation_pitch_right_,
+           config.rotation_yaw_right_, config.rotation_roll_right_);
+
+  return config;
+}
+
+//}
+
+/* stereoTf() //{ */
+
+geometry_msgs::msg::TransformStamped FlightforgeSimulator::stereoTf(const size_t uav_idx, const bool left) const {
+
+  const Eigen::Isometry3d T = stereoPublishedPose(uav_idx, left);
+
+  geometry_msgs::msg::TransformStamped tf;
+
+  tf.header.stamp    = clock_->now();
+  tf.header.frame_id = uav_names.at(uav_idx) + "/fcu";
+  tf.child_frame_id  = uav_names.at(uav_idx) + (left ? "/stereo_left" : "/stereo_right");
+
+  tf.transform.translation.x = T.translation().x();
+  tf.transform.translation.y = T.translation().y();
+  tf.transform.translation.z = T.translation().z();
+
+  tf.transform.rotation = mrs_lib::AttitudeConverter(Eigen::Matrix3d(T.linear()));
+
+  return tf;
+}
+
+//}
+
 /* publishStaticTfs() //{ */
 
 void FlightforgeSimulator::publishStaticTfs(void) {
@@ -2746,37 +2993,33 @@ void FlightforgeSimulator::publishStaticTfs(void) {
       RCLCPP_INFO(node_->get_logger(), "  resolution: [%d, %d]\n", rgb_width_, rgb_height_);
     }
 
-    /* // | ----------------------- stereo left ---------------------- | */
+    // | --------------------- stereo left/right -------------------- |
 
-    {
-      tf.header.stamp = clock_->now();
+    for (const bool left : {true, false}) {
 
-      tf.header.frame_id = uav_name + "/fcu";
-      tf.child_frame_id  = uav_name + "/stereo_left";
+      const std::string side = left ? "left" : "right";
 
-      tf.transform.translation.x = stereo_offset_x_left_;
-      tf.transform.translation.y = stereo_offset_y_left_;
-      tf.transform.translation.z = stereo_offset_z_left_;
+      Eigen::Isometry3d T_fcu_cam;
 
-      Eigen::Matrix3d initial_tf = mrs_lib::AttitudeConverter(Eigen::Quaterniond(-0.5, 0.5, -0.5, 0.5));
+      {
+        std::scoped_lock lock(mutex_stereo_extrinsics_);
 
-      Eigen::Matrix3d dynamic_tf = mrs_lib::AttitudeConverter(M_PI * (stereo_rotation_roll_left_ / 180.0), M_PI * (stereo_rotation_pitch_left_ / 180.0),
-                                                              M_PI * (stereo_rotation_yaw_left_ / 180.0));
-
-      Eigen::Matrix3d final_tf = dynamic_tf * initial_tf;
-
-      tf.transform.rotation = mrs_lib::AttitudeConverter(final_tf);
+        tf        = stereoTf(i, left);
+        T_fcu_cam = stereoPublishedPose(i, left);
+      }
 
       try {
         static_broadcaster_->sendTransform(tf);
       }
       catch (...) {
-        RCLCPP_ERROR(node_->get_logger(), "Could not publish stereo left tf");
+        RCLCPP_ERROR(node_->get_logger(), "Could not publish stereo %s tf", side.c_str());
       }
 
       // | ------------- print the tf matrix for kalibr ------------- |
 
-      RCLCPP_INFO(node_->get_logger(), "[uav%d]: Stereo left camera-imu chain for kalibr config:", int(i + 1));
+      const Eigen::Matrix3d final_tf = T_fcu_cam.linear();
+
+      RCLCPP_INFO(node_->get_logger(), "[uav%d]: Stereo %s camera-imu chain for kalibr config:", int(i + 1), side.c_str());
       RCLCPP_INFO(node_->get_logger(), "cam0:\n");
       RCLCPP_INFO(node_->get_logger(), "  T_imu_cam:\n");
       RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(0, 0), final_tf(0, 1), final_tf(0, 2), tf.transform.translation.x);
@@ -2791,51 +3034,6 @@ void FlightforgeSimulator::publishStaticTfs(void) {
                   stereo_camera_info_.k[5]);
       RCLCPP_INFO(node_->get_logger(), "  resolution: [%d, %d]\n", stereo_width_, stereo_height_);
     }
-
-    {
-      tf.header.stamp = clock_->now();
-
-      tf.header.frame_id = uav_name + "/fcu";
-      tf.child_frame_id  = uav_name + "/stereo_right";
-
-      tf.transform.translation.x = stereo_offset_x_right_;
-      tf.transform.translation.y = stereo_offset_y_right_;
-      tf.transform.translation.z = stereo_offset_z_right_;
-
-      Eigen::Matrix3d initial_tf = mrs_lib::AttitudeConverter(Eigen::Quaterniond(-0.5, 0.5, -0.5, 0.5));
-
-      Eigen::Matrix3d dynamic_tf = mrs_lib::AttitudeConverter(M_PI * (stereo_rotation_roll_right_ / 180.0), M_PI * (stereo_rotation_pitch_right_ / 180.0),
-                                                              M_PI * (stereo_rotation_yaw_right_ / 180.0));
-
-      Eigen::Matrix3d final_tf = dynamic_tf * initial_tf;
-
-      tf.transform.rotation = mrs_lib::AttitudeConverter(final_tf);
-
-      try {
-        static_broadcaster_->sendTransform(tf);
-      }
-      catch (...) {
-        RCLCPP_ERROR(node_->get_logger(), "Could not publish stereo right tf");
-      }
-
-      // | ------------- print the tf matrix for kalibr ------------- |
-
-      RCLCPP_INFO(node_->get_logger(), "[uav%d]: Stereo right camera-imu chain for kalibr config:", int(i + 1));
-      RCLCPP_INFO(node_->get_logger(), "cam0:\n");
-      RCLCPP_INFO(node_->get_logger(), "  T_imu_cam:\n");
-      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(0, 0), final_tf(0, 1), final_tf(0, 2), tf.transform.translation.x);
-      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(1, 0), final_tf(1, 1), final_tf(1, 2), tf.transform.translation.y);
-      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", final_tf(2, 0), final_tf(2, 1), final_tf(2, 2), tf.transform.translation.z);
-      RCLCPP_INFO(node_->get_logger(), "    - [%f, %f, %f, %f]\n", 0.0, 0.0, 0.0, 1.0);
-      RCLCPP_INFO(node_->get_logger(), "  cam_overlaps: [0]\n");
-      RCLCPP_INFO(node_->get_logger(), "  camera_model: pinhole\n");
-      RCLCPP_INFO(node_->get_logger(), "  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]\n");
-      RCLCPP_INFO(node_->get_logger(), "  distortion_model: radtan\n");
-      RCLCPP_INFO(node_->get_logger(), "  intrinsics: [%f, %f, %f, %f]\n", stereo_camera_info_.k[0], stereo_camera_info_.k[4], stereo_camera_info_.k[2],
-                  stereo_camera_info_.k[5]);
-      RCLCPP_INFO(node_->get_logger(), "  resolution: [%d, %d]\n", stereo_width_, stereo_height_);
-    }
-
 
     // | ------------------------- lidar tf ------------------------- |
     {

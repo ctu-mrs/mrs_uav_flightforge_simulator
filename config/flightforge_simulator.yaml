@@ -211,6 +211,18 @@ mrs_uav_flightforge_simulator:
       enable_temporal_aa: true
       enable_raytracing: true
 
+      # Run-time adjustment of the extrinsics of each camera via
+      #   /<uav_name>/stereo/{left,right}/extrinsics_adjustment_in  (geometry_msgs/msg/Pose)
+      # The pose is a relative transformation from the camera's nominal pose (above),
+      # expressed in its nominal optical frame (z forward, x right, y down):
+      #   T_fcu_cam = T_fcu_cam_nominal * T_adjustment
+      # Each message replaces the previous adjustment; an identity pose restores the nominal extrinsics.
+      extrinsics_adjustment:
+
+        # true: the TFs and camera_info follow the adjusted extrinsics (ground truth)
+        # false: the TFs and camera_info keep the nominal extrinsics (simulates a decalibrated camera)
+        update_tf: true
+
 
 
 # randomization of the initial conditions around the desired spawn point
