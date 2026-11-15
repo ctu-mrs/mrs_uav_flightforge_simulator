@@ -4,6 +4,6 @@ mrs_uav_hw_api:
 
     gnss:
       utm_zone: "33N"
-      utm_x: 458348.968
-      utm_y: 5547303.552
-      amsl: 205.76
+      utm_x: 458358.874
+      utm_y: 5547300.195
+      amsl: 204.988
