@@ -1,0 +1,18 @@
+mrs_uav_managers:
+
+  estimation_manager:
+
+    state_estimators: [
+     "gps_baro",
+    ]
+
+    initial_state_estimator: "gps_baro" # will be used as the first state estimator
+    agl_height_estimator: "" # only slightly filtered height for checking min height (not used in control feedback)
+
+  uav_manager:
+
+    takeoff:
+
+      after_takeoff:
+
+        controller: "Se3Controller"

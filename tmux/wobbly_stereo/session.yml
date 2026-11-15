@@ -1,0 +1,61 @@
+# do not modify these
+root: ./
+name: simulation
+socket_name: mrs
+attach: false
+tmux_options: -f /etc/ctu-mrs/tmux.conf
+# you can modify these
+startup_window: simulator
+pre_window: export UAV_NAME=uav1;
+            export USE_SIM_TIME="true";
+            export UAV_TYPE=x500;
+            export PLATFORM_CONFIG=`ros2 pkg prefix mrs_multirotor_simulator`/share/mrs_multirotor_simulator/config/mrs_uav_system/$UAV_TYPE.yaml;
+            export RMW_IMPLEMENTATION=rmw_zenoh_cpp;
+            export SIM_WORLD="temesvar"
+windows:
+  - router:
+      layout: tiled
+      panes:
+        - ros2 run rmw_zenoh_cpp rmw_zenohd
+  - simulator:
+      layout: tiled
+      panes:
+        - ros2 launch mrs_uav_flightforge_simulator flightforge_simulator.launch.py custom_config:=./config/simulator_$SIM_WORLD.yaml
+  - hw_api:
+      layout: tiled
+      panes:
+        - ros2 launch mrs_uav_flightforge_simulator hw_api.launch.py custom_config:=./config/hw_api_$SIM_WORLD.yaml
+  - status:
+      layout: tiled
+      panes:
+        - ros2 run mrs_uav_status status.sh
+  - core:
+      layout: tiled
+      panes:
+        - ros2 launch mrs_uav_core core.launch.py
+          platform_config:=$PLATFORM_CONFIG
+          world_config:=./config/world_config_$SIM_WORLD.yaml
+          custom_config:=./config/custom_config.yaml
+          network_config:=./config/network_config.yaml
+  - takeoff:
+      layout: tiled
+      panes:
+        - ros2 launch mrs_uav_autostart automatic_start.launch.py custom_config:=./config/automatic_start.yaml
+        - waitForCore; ./takeoff.sh
+  - stereo:
+      layout: tiled
+      panes:
+        - ros2 launch stereo_image_proc stereo_image_proc.launch.py namespace:=uav1/stereo
+        - waitForCore; ./stereo_wobble.py --ros-args -p use_sim_time:=true
+  - rviz:
+      layout: tiled
+      panes:
+        - ros2 run rviz2 rviz2 -d ./rviz.rviz --ros-args -p use_sim_time:=true
+  - foxglove_bridge:
+       layaut: tiled
+       panes:
+         - ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765
+  - layout:
+      layout: tiled
+      panes:
+        - sleep 5; ~/.i3/layout_manager.sh ./layout.json

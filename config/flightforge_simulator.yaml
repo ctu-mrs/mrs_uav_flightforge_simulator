@@ -179,7 +179,7 @@ mrs_uav_flightforge_simulator:
 
       enabled: false
 
-      rate: 10.0 # [Hz]
+      rate: 20.0 # [Hz]
 
       width: 640 # [px]
       height: 480 # [px]

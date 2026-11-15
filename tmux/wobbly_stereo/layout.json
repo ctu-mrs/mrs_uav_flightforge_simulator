@@ -1,0 +1,93 @@
+[
+{
+	"border": "normal",
+		"floating": "auto_off",
+		"fullscreen_mode": 0,
+		"layout": "splitv",
+		"marks": [],
+		"percent": 0.5,
+		"type": "con",
+		"nodes": [
+		{
+			"border": "normal",
+			"floating": "auto_off",
+			"layout": "tabbed",
+			"marks": [],
+			"percent": 0.75,
+			"type": "con",
+			"nodes": [
+			{
+				"border": "normal",
+				"floating": "auto_off",
+				"layout": "splitv",
+				"marks": [],
+				"percent": 0.5,
+				"type": "con",
+				"nodes": [
+				{
+					"border": "pixel",
+					"current_border_width": 3,
+					"floating": "auto_off",
+					"geometry": {
+						"height": 1148,
+						"width": 936,
+						"x": 2046,
+						"y": 754
+					},
+					"marks": [],
+					"name": "./rviz.rviz* - RViz",
+					"percent": 1,
+					"swallows": [
+					{
+						"instance": "^rviz2$"
+					}
+					],
+					"type": "con"
+				}
+				]
+			},
+			{
+				"border": "pixel",
+				"current_border_width": 3,
+				"floating": "auto_off",
+				"geometry": {
+					"height": 566,
+					"width": 1890,
+					"x": 15,
+					"y": 619
+				},
+				"marks": [],
+				"name": "rqt_reconfigure__Param - rqt",
+				"percent": 0.5,
+				"swallows": [
+				{
+					"instance": "^rqt_reconfigure$"
+				}
+				],
+				"type": "con"
+			}
+			]
+		},
+		{
+			"border": "pixel",
+			"current_border_width": 3,
+			"floating": "auto_off",
+			"geometry": {
+				"height": 436,
+				"width": 804,
+				"x": 0,
+				"y": 0
+			},
+			"marks": [],
+			"name": "./start.sh",
+			"percent": 0.25,
+			"swallows": [
+			{
+				"instance": "^urxvt$"
+			}
+			],
+			"type": "con"
+		}
+		]
+}
+]
