@@ -25,6 +25,8 @@ individual_takeoff_platform:
 
 mrs_uav_flightforge_simulator:
 
+  custom_level: true
+
   collisions:
     enabled: false
     crash: false
@@ -51,11 +53,11 @@ mrs_uav_flightforge_simulator:
 
       enabled: true
 
-      enable_hdr: true
+      enable_hdr: false
       enable_temporal_aa: false
-      enable_raytracing: true
+      enable_raytracing: false
 
-      enable_motion_blur: true
+      enable_motion_blur: false
       motion_blur_amount: 0.5 # [0.0 - 1.0]
       motion_blur_distortion: 50 # [0-100]
 
