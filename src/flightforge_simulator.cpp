@@ -2831,7 +2831,7 @@ void FlightforgeSimulator::callbackStereoExtrinsics(const geometry_msgs::msg::Po
 
   const Eigen::Quaterniond q_fcu_cam(T_fcu_cam.linear());
 
-  RCLCPP_INFO(node_->get_logger(), "[uav%lu]: stereo %s extrinsics adjusted, fcu->cam: t = [%.4f, %.4f, %.4f], q (xyzw) = [%.4f, %.4f, %.4f, %.4f]%s",
+  RCLCPP_INFO_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000, "[uav%lu]: stereo %s extrinsics adjusted, fcu->cam: t = [%.4f, %.4f, %.4f], q (xyzw) = [%.4f, %.4f, %.4f, %.4f]%s",
               uav_idx + 1, side.c_str(), T_fcu_cam.translation().x(), T_fcu_cam.translation().y(), T_fcu_cam.translation().z(), q_fcu_cam.x(),
               q_fcu_cam.y(), q_fcu_cam.z(), q_fcu_cam.w(), _stereo_extrinsics_update_tf_ ? "" : " (TF kept nominal)");
 }
