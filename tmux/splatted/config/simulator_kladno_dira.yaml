@@ -1,0 +1,81 @@
+uav_names: [
+  "uav1",
+]
+
+frames:
+  fcu:
+    publish_tf: false
+
+uav1:
+
+  frame: "x500"
+  type: "x500"
+  spawn:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    heading: 0.0
+
+ground:
+  enabled: false
+  z: 0.0 # [m]
+
+individual_takeoff_platform:
+  enabled: true
+
+mrs_uav_flightforge_simulator:
+
+  custom_level: true
+
+  collisions:
+    enabled: false
+    crash: false
+
+  sensors:
+
+    lidar:
+
+      beam_length: 50.0 # [m]
+
+      enabled: true
+      horizontal_rays: 128 # [-]
+      vertical_rays: 128 # [-]
+
+      lidar_segmented:
+        enabled: false
+        rate: 10.0 # [Hz]
+
+      lidar_intensity:
+        enabled: false
+        rate: 10.0 # [Hz]
+
+    rgb:
+
+      enabled: true
+
+      width: 1280 # [px]
+      height: 800 # [px]
+      fov: 90.0 # [deg]
+
+      rgb_segmented:
+        enabled: false
+        rate: 10.0 # [Hz]
+
+      offset:
+        x: 0.3 # [m]
+        y: 0.0 # [m]
+        z: 0.0 # [m]
+
+      rotation:
+        pitch: 0.0 # [deg]
+
+      depth:
+        enabled: false
+
+    stereo:
+      enabled: false
+      rate: 10.0
+
+  graphics_settings: "low"
+
+  realtime_factor: 1.0 # [-]
