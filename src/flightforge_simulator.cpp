@@ -77,6 +77,20 @@ typedef mrs_lib::ThreadTimer TimerType;
 namespace mrs_uav_flightforge_simulator
 {
 
+/* subtractClamped() //{ */
+
+// rclcpp::Time throws when it would become negative (e.g., before the first sim step), so clamp to 0
+rclcpp::Time subtractClamped(const rclcpp::Time& time, const rclcpp::Duration& duration) {
+
+  if (time.nanoseconds() <= duration.nanoseconds()) {
+    return rclcpp::Time(0, 0, time.get_clock_type());
+  }
+
+  return time - duration;
+}
+
+//}
+
 /* class FlightforgeSimulator //{ */
 
 class FlightforgeSimulator : public rclcpp::Node {
@@ -1704,7 +1718,7 @@ void FlightforgeSimulator::timerLidar() {
                                   sensor_msgs::msg::PointField::FLOAT32, "intensity", 1, sensor_msgs::msg::PointField::FLOAT32);
 
     // TODO we should publish the actual stamp from the unreal sim (transformed to the simtime)
-    pcl_msg.header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+    pcl_msg.header.stamp = subtractClamped(last_step_time, rclcpp::Duration(std::chrono::duration<double>(0.01)));
 
     pcl_msg.header.frame_id = uav_name + "/lidar";
     pcl_msg.is_dense        = true;
@@ -1726,7 +1740,7 @@ void FlightforgeSimulator::timerLidar() {
                                        sensor_msgs::msg::PointField::FLOAT32, "intensity", 1, sensor_msgs::msg::PointField::FLOAT32);
 
     // TODO we should publish the actual stamp from the unreal sim (transformed to the simtime)
-    pcl_free_msg.header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+    pcl_free_msg.header.stamp = subtractClamped(last_step_time, rclcpp::Duration(std::chrono::duration<double>(0.01)));
 
     pcl_free_msg.header.frame_id = uav_name + "/lidar";
     pcl_free_msg.is_dense        = true;
@@ -1867,7 +1881,7 @@ void FlightforgeSimulator::timerSegLidar() {
     auto last_step_time = mrs_lib::get_mutexed(mutex_sim_time_, last_step_time_);
 
     // TODO we should publish the actual stamp from the unreal sim (transformed to the simtime)
-    pcl_msg.header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+    pcl_msg.header.stamp = subtractClamped(last_step_time, rclcpp::Duration(std::chrono::duration<double>(0.01)));
 
     pcl_msg.header.frame_id = "uav" + std::to_string(i + 1) + "/lidar";
     ph_seg_lidars_[i].publish(pcl_msg);
@@ -1917,7 +1931,7 @@ void FlightforgeSimulator::timerIntLidar() {
     auto last_step_time = mrs_lib::get_mutexed(mutex_sim_time_, last_step_time_);
 
     // TODO we should publish the actual stamp from the unreal sim (transformed to the simtime)
-    pcl_msg.header.stamp = last_step_time - rclcpp::Duration(std::chrono::duration<double>(0.01));
+    pcl_msg.header.stamp = subtractClamped(last_step_time, rclcpp::Duration(std::chrono::duration<double>(0.01)));
 
     pcl_msg.header.frame_id = "uav" + std::to_string(i + 1) + "/lidar";
     pcl_msg.height          = lidar_vertical_rays_;
