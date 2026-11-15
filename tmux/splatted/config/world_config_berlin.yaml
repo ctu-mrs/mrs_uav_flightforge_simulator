@@ -4,8 +4,8 @@ mrs_uav_managers:
 
     units: "LATLON" # {"UTM, "LATLON"}
 
-    origin_x: 47.397743
-    origin_y: 8.545594
+    origin_x: 52.621643629
+    origin_y: 13.153313574
 
   safety_area_manager:
 

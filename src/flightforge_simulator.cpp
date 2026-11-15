@@ -242,6 +242,8 @@ private:
   double       wall_time_offset_drift_slope_ = 0;
   std::mutex   mutex_wall_time_offset_;
   rclcpp::Time last_real_;
+  bool         wall_time_offset_initialized_ = false;
+  double       last_measured_wall_time_offset_ = 0;
 
   double                   flightforge_fps_ = 0;
   std::string              flightforge_world_level_name_enum_;
@@ -1616,7 +1618,6 @@ void FlightforgeSimulator::timerTimeSync() {
     return;
   }
 
-  auto wall_time_offset = mrs_lib::get_mutexed(mutex_wall_time_offset_, wall_time_offset_);
 
   const double sync_start = wall_clock_->now().seconds();
 
@@ -1642,29 +1643,39 @@ void FlightforgeSimulator::timerTimeSync() {
 
   // | --------------- time drift slope estimation -------------- |
 
-  if (current_real.seconds() > 0 && last_real_.seconds() > 0) {
+  if (!wall_time_offset_initialized_) {
+
+    // first measurement: take it as is, do not low-pass from 0 (the true offset is ~1e9 s)
+    {
+      std::scoped_lock lock(mutex_wall_time_offset_);
+
+      wall_time_offset_             = new_wall_time_offset;
+      wall_time_offset_drift_slope_ = 0;
+    }
+
+    wall_time_offset_initialized_ = true;
+
+  } else {
 
     const double wall_dt = (current_real - last_real_).seconds();
 
-    if (wall_dt > 0) {
+    if (wall_dt > 0.1) {
 
-      double drift_estimate = (new_wall_time_offset - wall_time_offset) / wall_dt;
+      // slope from two consecutive raw measurements (not from the filtered/propagated offset)
+      const double drift_measured = (new_wall_time_offset - last_measured_wall_time_offset_) / wall_dt;
 
-      {
-        std::scoped_lock lock(mutex_wall_time_offset_);
+      std::scoped_lock lock(mutex_wall_time_offset_);
 
-        wall_time_offset_drift_slope_ += drift_estimate;
-      }
+      wall_time_offset_drift_slope_ = 0.9 * wall_time_offset_drift_slope_ + 0.1 * drift_measured;
+
+      // the offset was already propagated with the slope in timerMain(), fuse in the new measurement
+      wall_time_offset_ = 0.9 * wall_time_offset_ + 0.1 * new_wall_time_offset;
     }
   }
 
+  last_measured_wall_time_offset_ = new_wall_time_offset;
+
   // | ------------------------- finish ------------------------- |
-
-  {
-    std::scoped_lock lock(mutex_wall_time_offset_);
-
-    wall_time_offset_ = 0.99*wall_time_offset_ + 0.01*new_wall_time_offset;
-  }
 
   last_real_ = current_real;
 
@@ -3066,17 +3077,20 @@ void FlightforgeSimulator::publishStaticTfs(void) {
 rclcpp::Time FlightforgeSimulator::flightforgeTimeToSimtime(const double flightforge_time) {
 
   auto wall_time_offset = mrs_lib::get_mutexed(mutex_wall_time_offset_, wall_time_offset_);
+  auto actual_rtf       = mrs_lib::get_mutexed(mutex_actual_rtf_, actual_rtf_);
 
-  double relative_wall_age = wall_clock_->now().seconds() - (flightforge_time + wall_time_offset);
+  // how long ago (in wall time) was the data captured
+  const double relative_wall_age = wall_clock_->now().seconds() - (flightforge_time + wall_time_offset);
 
-  if (relative_wall_age < 0) {
+  const double sim_time = clock_->now().seconds() - relative_wall_age * actual_rtf;
+
+  if (!std::isfinite(sim_time) || sim_time < 0) {
+    RCLCPP_WARN_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "invalid image stamp %f (wall age %f s), clamping to 0", sim_time, relative_wall_age);
     return rclcpp::Time(0, 0, clock_->get_clock_type());
   }
 
-  const double secs     = floor(relative_wall_age);
-  const double nanosecs = (relative_wall_age - secs) * 1e9;
-
-  return rclcpp::Time(secs, nanosecs, clock_->get_clock_type());
+  // int64 nanoseconds ctor, the (int32_t secs, uint32_t nsecs) one overflows to negative above 2^31 s
+  return rclcpp::Time(static_cast<int64_t>(sim_time * 1e9), clock_->get_clock_type());
 }
 
 //}

@@ -11,7 +11,7 @@ pre_window: export UAV_NAME=uav1;
             export UAV_TYPE=x500;
             export PLATFORM_CONFIG=`ros2 pkg prefix mrs_multirotor_simulator`/share/mrs_multirotor_simulator/config/mrs_uav_system/$UAV_TYPE.yaml;
             export RMW_IMPLEMENTATION=rmw_zenoh_cpp;
-            export SIM_WORLD="karlak" # {temesvar, karlak}
+            export SIM_WORLD="berlin" # {temesvar, karlak, berlin}
 windows:
   - router:
       layout: tiled
