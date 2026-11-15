@@ -3,7 +3,7 @@ mrs_uav_flightforge_simulator:
   # the rate of stepping the simulation
   simulation_rate: 100.0 # Hz
 
-  # The ip address of the simulator. If running locally, set to "localhost". 
+  # The ip address of the simulator. If running locally, set to "localhost".
   simulator_ip: "localhost"
 
   # the rate of publishing of /clock
@@ -144,7 +144,7 @@ mrs_uav_flightforge_simulator:
 
       rate: 30.0 # [Hz]
 
-      enable_hdr: true
+      enable_hdr: false
       enable_temporal_aa: false
       enable_raytracing: false
 
@@ -186,7 +186,7 @@ mrs_uav_flightforge_simulator:
       fov: 90.0 # [deg]
 
       # Left camera configuration
-      left: 
+      left:
         offset_x: 0.3 # [m]
         offset_y: 0.3 # [m]
         offset_z: 0.0 # [m]
