@@ -28,6 +28,7 @@
   <depend>rosgraph_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>diagnostic_msgs</depend>
   <depend>std_srvs</depend>
   <depend>mrs_multirotor_simulator</depend>
   <depend>stereo_image_proc</depend>

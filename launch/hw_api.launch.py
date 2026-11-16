@@ -134,6 +134,7 @@ def generate_launch_description():
                   ("~/simulator_imu_in", ["/flightforge_simulator/", uav_name, "/imu"]),
                   ("~/simulator_odom_in", ["/flightforge_simulator/", uav_name, "/odom"]),
                   ("~/simulator_rangefinder_in", ["/flightforge_simulator/", uav_name, "/rangefinder"]),
+                  ("~/simulator_crashed_in", ["/flightforge_simulator/", uav_name, "/crashed"]),
                   ("~/simulator_actuators_cmd_out", ["/flightforge_simulator/", uav_name, "/actuators_cmd"]),
                   ("~/simulator_control_group_cmd_out", ["/flightforge_simulator/", uav_name, "/control_group_cmd"]),
                   ("~/simulator_attitude_rate_cmd_out", ["/flightforge_simulator/", uav_name, "/attitude_rate_cmd"]),

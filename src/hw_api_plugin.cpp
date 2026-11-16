@@ -5,6 +5,7 @@
 #include <mrs_uav_hw_api/api.h>
 
 #include <nav_msgs/msg/odometry.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 #include <mrs_lib/param_loader.h>
 #include <mrs_lib/attitude_converter.h>
@@ -99,8 +100,10 @@ private:
   mrs_lib::SubscriberHandler<nav_msgs::msg::Odometry> sh_odom_;
   mrs_lib::SubscriberHandler<sensor_msgs::msg::Imu>   sh_imu_;
   mrs_lib::SubscriberHandler<sensor_msgs::msg::Range> sh_range_;
+  mrs_lib::SubscriberHandler<std_msgs::msg::Bool>     sh_crashed_;
 
   void callbackOdom(const nav_msgs::msg::Odometry::ConstSharedPtr msg);
+  void callbackCrashed(const std_msgs::msg::Bool::ConstSharedPtr msg);
   void callbackImu(const sensor_msgs::msg::Imu::ConstSharedPtr msg);
   void callbackRangefinder(const sensor_msgs::msg::Range::ConstSharedPtr msg);
 
@@ -129,6 +132,7 @@ private:
   std::string       mode_;
   std::atomic<bool> armed_     = false;
   std::atomic<bool> connected_ = false;
+  std::atomic<bool> crashed_   = false;
   std::mutex        mutex_status_;
 
   // | ------------------------- methods ------------------------ |
@@ -205,6 +209,12 @@ void Api::initialize(const rclcpp::Node::SharedPtr& node, std::shared_ptr<mrs_ua
 
   if (_capabilities_.produces_distance_sensor) {
     sh_range_ = mrs_lib::SubscriberHandler<sensor_msgs::msg::Range>(shopts, "~/simulator_rangefinder_in", &Api::callbackRangefinder, this);
+  }
+
+  {
+    mrs_lib::SubscriberHandlerOptions latched = shopts;
+    latched.qos                               = rclcpp::QoS(1).transient_local();
+    sh_crashed_ = mrs_lib::SubscriberHandler<std_msgs::msg::Bool>(latched, "~/simulator_crashed_in", &Api::callbackCrashed, this);
   }
 
   // | ----------------------- publishers ----------------------- |
@@ -320,7 +330,13 @@ std::tuple<bool, std::string> Api::callbackArming([[maybe_unused]] const bool& r
 
   std::stringstream ss;
 
-  if (request) {
+  if (request && crashed_) {
+
+    ss << "cannot arm, the UAV has crashed";
+    RCLCPP_ERROR_STREAM(node_->get_logger(), "" << ss.str());
+    return std::tuple(false, ss.str());
+
+  } else if (request) {
 
     armed_ = true;
 
@@ -610,6 +626,27 @@ void Api::callbackTrackerCmd(const mrs_msgs::msg::TrackerCommand::ConstSharedPtr
 //}
 
 // | ------------------------ callbacks ----------------------- |
+
+/* callbackCrashed() //{ */
+
+// a crashed flight controller cuts its motors and disarms, as PX4's failure detector does
+void Api::callbackCrashed(const std_msgs::msg::Bool::ConstSharedPtr msg) {
+
+  std::scoped_lock lock(mutex_status_);
+
+  if (msg->data && !crashed_) {
+    RCLCPP_ERROR(node_->get_logger(), "the UAV crashed: motors off, disarmed");
+    armed_    = false;
+    offboard_ = false;
+    mode_     = "CRASHED";
+  } else if (!msg->data && crashed_) {
+    mode_ = "";
+  }
+
+  crashed_ = msg->data;
+}
+
+//}
 
 /* //{ callbackOdom() */
 

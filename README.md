@@ -97,7 +97,9 @@ Cameras render at their own `rate`, which the node sends to the simulator as `ca
 - `ground/from_simulator: false`: the dynamics' flat ground at `ground/z`. `ground/enabled: false`: no ground at all.
 - `individual_takeoff_platform/enabled` holds a UAV at its spawn height until its thrust passes 90 % of hover; with the ground from the simulator it only matters for a spawn in the air.
 - With `collisions/enabled` and `collisions/crash`, a UAV crashes when it meets the ground faster than `collisions/max_touchdown_speed` (2 m/s by default), and on any collision the simulator reports other than touching the ground under it (no more than 5 cm above it) at most that fast.
-- The ground from the simulator needs `UavSystemRos::setGroundZ()` from `mrs_multirotor_simulator`, which is not upstream yet.
+- A crash stops only that UAV: its motors cut, it falls under gravity onto the surface below (from an obstacle it hit, straight down beside it) and lies there on its gear. The simulation, the other UAVs and the crashed UAV's odometry keep running. The node logs the reason, latches `true` on `/flightforge_simulator/<uav>/crashed`, and puts an ERROR entry per crashed UAV on `/diagnostics` (OK for the others, 1 Hz). The HW API plugin then reports the UAV disarmed, out of offboard, in mode `CRASHED`, and refuses to arm it again, as a flight controller does after a crash.
+- From FlightForge API 1.8 a UAV's ground query leaves out only that UAV, so it can land on another robot (or on a crashed UAV); against a 1.1 to 1.7 simulator every robot is left out.
+- The ground from the simulator needs `UavSystemRos::setGroundZ()`, and the crash handling `UavSystemRos::setState()`, from `mrs_multirotor_simulator`; neither is upstream yet.
 
 ## Device presets
 

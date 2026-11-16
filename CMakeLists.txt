@@ -43,6 +43,7 @@ set(DEPENDENCIES
   sensor_msgs
   std_msgs
   std_srvs
+  diagnostic_msgs
   image_transport
   cv_bridge
   pcl_ros
@@ -67,6 +68,7 @@ set(TARGETS
   ${sensor_msgs_TARGETS}
   ${std_msgs_TARGETS}
   ${std_srvs_TARGETS}
+  ${diagnostic_msgs_TARGETS}
   image_transport::image_transport
   cv_bridge::cv_bridge
   pcl_ros::pcl_ros_tf

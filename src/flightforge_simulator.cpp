@@ -7,6 +7,8 @@
 #include <mrs_multirotor_simulator/uav_system_ros.h>
 
 #include <rosgraph_msgs/msg/clock.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
 
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/quaternion_stamped.hpp>
@@ -261,10 +263,22 @@ private:
 
   void checkForCrash(void);
 
+  // | ------------------------- crashes ------------------------ |
+
+  std::vector<std::string>                                          crash_reasons_;  // empty while the UAV flies
+  std::mutex                                                        mutex_crashes_;
+  std::vector<mrs_lib::PublisherHandler<std_msgs::msg::Bool>>       ph_crashed_;
+  mrs_lib::PublisherHandler<diagnostic_msgs::msg::DiagnosticArray> ph_diagnostics_;
+
+  void crashUav(size_t uav, const std::string& reason, bool hit_obstacle);
+  void settleCrashed(size_t uav);
+  void publishCrashes(void);
+
   // | ------------------------- ground ------------------------- |
 
   bool ground_enabled_        = false;
   bool ground_from_simulator_ = false;
+  bool ground_robot_ids_      = false;  // API 1.8: each UAV stands on other robots, never on itself
 
   std::vector<double> clearance_;  // [m] of the base link above the surface it rests on
   std::vector<double> surface_;    // [m] highest surface under each UAV's footprint, NaN for none
@@ -614,6 +628,8 @@ void FlightforgeSimulator::timerInit() {
       rclcpp::shutdown();
       exit(1);
     }
+
+    ground_robot_ids_ = info->minor >= 8;
   }
 
   const std::string world = setUpWorld();
@@ -746,6 +762,20 @@ void FlightforgeSimulator::timerInit() {
   ph_clock_ = mrs_lib::PublisherHandler<rosgraph_msgs::msg::Clock>(node_, "~/clock_out");
 
   ph_poses_ = mrs_lib::PublisherHandler<geometry_msgs::msg::PoseArray>(node_, "~/uav_poses_out");
+
+  crash_reasons_.assign(uav_names.size(), "");
+
+  {
+    mrs_lib::PublisherHandlerOptions latched(node_);
+    latched.qos = rclcpp::QoS(1).transient_local();
+
+    for (const auto& uav_name : uav_names) {
+      ph_crashed_.emplace_back(latched, "~/" + uav_name + "/crashed");
+      ph_crashed_.back().publish(std_msgs::msg::Bool());
+    }
+  }
+
+  ph_diagnostics_ = mrs_lib::PublisherHandler<diagnostic_msgs::msg::DiagnosticArray>(node_, "/diagnostics");
 
   // | ------------------------- timers ------------------------- |
 
@@ -919,13 +949,21 @@ void FlightforgeSimulator::timerMain() {
 
       for (size_t i = 0; i < uavs_.size(); i++) {
 
-        if (uavs_[i]->hasCrashed()) {
+        const bool crashed = uavs_[i]->hasCrashed();
+
+        // without a ground a crashed UAV would fall for ever
+        if (crashed && !ground_enabled_) {
           continue;
         }
 
         const auto before = uavs_[i]->getState();
 
         uavs_.at(i)->makeStep(dt_since_last_step, sim_time.seconds());
+
+        if (crashed) {
+          settleCrashed(i);
+          continue;
+        }
 
         if (!ground_enabled_ || !crash_on_collision) {
           continue;
@@ -935,9 +973,10 @@ void FlightforgeSimulator::timerMain() {
         const double ground_z = uavs_[i]->getParams().ground_z;
 
         if (touchedDown(after.x(2), after.v(0), after.v(1), after.v(2), before.v(2), ground_z) && -before.v(2) > drs_params.max_touchdown_speed) {
-          RCLCPP_WARN(node_->get_logger(), "%s crashed: hit the ground at %.2f m/s, faster than collisions/max_touchdown_speed (%.2f m/s)", uav_names[i].c_str(),
-                      -before.v(2), drs_params.max_touchdown_speed);
-          uavs_[i]->crash();
+          char reason[128];
+          std::snprintf(reason, sizeof(reason), "hit the ground at %.2f m/s, faster than collisions/max_touchdown_speed (%.2f m/s)", -before.v(2),
+                        drs_params.max_touchdown_speed);
+          crashUav(i, reason, false);
         }
       }
 
@@ -1042,9 +1081,22 @@ void FlightforgeSimulator::timerStatus() {
     ground_latency_ = 0.0;
   }
 
-  RCLCPP_INFO(node_->get_logger(), "%s, desired RTF = %.2f, actual RTF = %.2f, FlightForge FPS = %.2f, FlightForge RTF = %.2f, time dilation = %.2f%s",
+  std::string crashed;
+
+  {
+    std::scoped_lock lock(mutex_crashes_);
+    for (size_t i = 0; i < crash_reasons_.size(); i++) {
+      if (!crash_reasons_[i].empty()) {
+        crashed += (crashed.empty() ? ", crashed: " : " ") + uav_names[i];
+      }
+    }
+  }
+
+  RCLCPP_INFO(node_->get_logger(), "%s, desired RTF = %.2f, actual RTF = %.2f, FlightForge FPS = %.2f, FlightForge RTF = %.2f, time dilation = %.2f%s%s",
               drs_params.paused ? "paused" : "running", drs_params.realtime_factor, actual_rtf, flightforge_fps_, flightforge_rtf, flightforge_time_dilation_,
-              ground_status.c_str());
+              ground_status.c_str(), crashed.c_str());
+
+  publishCrashes();
 
   mrs_lib::set_mutexed(mutex_actual_rtf_, actual_rtf, actual_rtf_);
 }
@@ -1214,23 +1266,29 @@ void FlightforgeSimulator::updateUnrealPoses(const bool teleport_without_collisi
 
   const bool collide = !teleport_without_collision && mrs_lib::get_mutexed(mutex_drs_params_, drs_params_).collisions_enabled;
 
+  // a crashed airframe falls along what it hit, where a sweep would hang it
   if (ff_robots_.size() == 1) {
 
-    if (const auto sent = ff_robots_[0]->SetStateAsync(robotState(0), collide); !sent) {
+    if (const auto sent = ff_robots_[0]->SetStateAsync(robotState(0), collide && !uavs_[0]->hasCrashed()); !sent) {
       RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "could not send the pose of %s: %s", uav_names[0].c_str(), sent.error.c_str());
     }
 
     return;
   }
 
-  std::vector<std::pair<int, flightforge::RobotState>> states;
+  std::vector<std::pair<int, flightforge::RobotState>> flying, crashed;
 
   for (size_t i = 0; i < ff_robots_.size(); i++) {
-    states.emplace_back(ff_robots_[i]->Id(), robotState(i));
+    (uavs_[i]->hasCrashed() ? crashed : flying).emplace_back(ff_robots_[i]->Id(), robotState(i));
   }
 
-  if (const auto sent = ff_pose_sim_->SetStates(states, collide, false); !sent) {
-    RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "could not send the UAV poses: %s", sent.error.c_str());
+  for (const auto& [states, sweep] : {std::pair{&flying, collide}, std::pair{&crashed, false}}) {
+    if (states->empty()) {
+      continue;
+    }
+    if (const auto sent = ff_pose_sim_->SetStates(*states, sweep, false); !sent) {
+      RCLCPP_ERROR_THROTTLE(node_->get_logger(), *wall_clock_, 1000, "could not send the UAV poses: %s", sent.error.c_str());
+    }
   }
 }
 
@@ -1268,10 +1326,112 @@ void FlightforgeSimulator::checkForCrash(void) {
       continue;
     }
 
-    RCLCPP_WARN(node_->get_logger(), "%s crashed at [%.2f, %.2f, %.2f], %.2f m/s", uav_names[i].c_str(), collision->impact_point.x, collision->impact_point.y,
-                collision->impact_point.z, speed);
-    uavs_[i]->crash();
+    char reason[128];
+    std::snprintf(reason, sizeof(reason), "hit an obstacle at [%.2f, %.2f, %.2f] at %.2f m/s", collision->impact_point.x, collision->impact_point.y,
+                  collision->impact_point.z, speed);
+    crashUav(i, reason, true);
   }
+}
+
+//}
+
+/* crashUav() //{ */
+
+// the motors stop and the dynamics let it fall onto the surface under it, as the ground query sees it
+void FlightforgeSimulator::crashUav(const size_t uav, const std::string& reason, const bool hit_obstacle) {
+
+  if (uavs_[uav]->hasCrashed()) {
+    return;
+  }
+
+  uavs_[uav]->crash();
+
+  auto state  = uavs_[uav]->getState();
+  state.omega = Eigen::Vector3d::Zero();
+
+  if (hit_obstacle) {
+
+    // the pose sweep held the airframe at the obstacle while the dynamics flew on into it
+    if (const auto held = ff_robots_[uav]->GetState(); held && held->state.base) {
+      const auto& p = held->state.base->position;
+      state.x       = Eigen::Vector3d(p.x, p.y, p.z);
+    }
+
+    state.v(0) = 0.0;
+    state.v(1) = 0.0;
+  }
+
+  uavs_[uav]->setState(state);
+
+  {
+    std::scoped_lock lock(mutex_crashes_);
+    crash_reasons_[uav] = reason;
+  }
+
+  RCLCPP_ERROR(node_->get_logger(), "%s crashed: %s; it falls to the ground and stays there, the simulation goes on", uav_names[uav].c_str(), reason.c_str());
+
+  std_msgs::msg::Bool crashed;
+  crashed.data = true;
+  ph_crashed_[uav].publish(crashed);
+
+  publishCrashes();
+}
+
+//}
+
+/* settleCrashed() //{ */
+
+// a crashed UAV at rest lies on its landing gear
+void FlightforgeSimulator::settleCrashed(const size_t uav) {
+
+  auto         state    = uavs_[uav]->getState();
+  const double ground_z = uavs_[uav]->getParams().ground_z;
+
+  if (state.x(2) > ground_z + 1e-3 || state.R(2, 2) > 0.9999) {
+    return;
+  }
+
+  const double yaw = std::atan2(state.R(1, 0), state.R(0, 0));
+
+  state.R = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+  state.v.setZero();
+  state.omega.setZero();
+
+  uavs_[uav]->setState(state);
+}
+
+//}
+
+/* publishCrashes() //{ */
+
+void FlightforgeSimulator::publishCrashes(void) {
+
+  diagnostic_msgs::msg::DiagnosticArray array;
+
+  array.header.stamp = mrs_lib::get_mutexed(mutex_sim_time_, sim_time_);
+
+  std::scoped_lock lock(mutex_crashes_);
+
+  for (size_t i = 0; i < crash_reasons_.size(); i++) {
+
+    const bool crashed = !crash_reasons_[i].empty();
+
+    diagnostic_msgs::msg::DiagnosticStatus status;
+
+    status.name        = "flightforge_simulator: " + uav_names[i];
+    status.hardware_id = uav_names[i];
+    status.level       = crashed ? diagnostic_msgs::msg::DiagnosticStatus::ERROR : diagnostic_msgs::msg::DiagnosticStatus::OK;
+    status.message     = crashed ? "crashed: " + crash_reasons_[i] : "ok";
+
+    diagnostic_msgs::msg::KeyValue value;
+    value.key   = "crashed";
+    value.value = crashed ? "true" : "false";
+    status.values.push_back(value);
+
+    array.status.push_back(status);
+  }
+
+  ph_diagnostics_.publish(array);
 }
 
 //}
@@ -1412,9 +1572,11 @@ void FlightforgeSimulator::groundWorker(void) {
 
   std::vector<GroundPose> poses;
   std::vector<double>     radius(uavs_.size());
+  std::vector<int32_t>    robot_ids;
 
   for (size_t i = 0; i < uavs_.size(); i++) {
     radius[i] = uavs_[i]->getParams().arm_length;
+    robot_ids.insert(robot_ids.end(), kFootprintPoints, ff_robots_[i]->Id());
   }
 
   while (true) {
@@ -1441,7 +1603,7 @@ void FlightforgeSimulator::groundWorker(void) {
     }
 
     const auto started = std::chrono::steady_clock::now();
-    const auto heights = ff_ground_sim_->GetSurfaceHeight(points);
+    const auto heights = ground_robot_ids_ ? ff_ground_sim_->GetSurfaceHeight(points, robot_ids) : ff_ground_sim_->GetSurfaceHeight(points);
     const double took  = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
 
     if (!heights) {
