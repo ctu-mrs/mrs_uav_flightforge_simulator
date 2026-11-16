@@ -1688,9 +1688,13 @@ void FlightforgeSimulator::setupSensors(size_t uav) {
 
   // | ------------------------- cameras ------------------------ |
 
+  if (!sensors_config_.rgb_segmented.empty()) {
+    RCLCPP_WARN(node_->get_logger(), "[%s] rgb_segmented is retired since FlightForge API 1.5, use instance_seg; skipping %zu camera(s)", uav_name.c_str(),
+                sensors_config_.rgb_segmented.size());
+  }
+
   const std::vector<std::tuple<std::string, SensorType, const std::vector<CameraParams>*>> camera_types = {
       {"rgb", SensorType::RGB_CAMERA, &sensors_config_.rgb},
-      {"rgb_segmented", SensorType::RGB_SEG_CAMERA, &sensors_config_.rgb_segmented},
       {"depth", SensorType::DEPTH_CAMERA, &sensors_config_.depth},
       {"instance_seg", SensorType::INSTANCE_SEG_CAMERA, &sensors_config_.instance_seg}};
 
@@ -2179,8 +2183,6 @@ void FlightforgeSimulator::fetchCamera(size_t uav, size_t i) {
     frame = fetchFresh(
         [&]() {
           switch (s.type) {
-            case SensorType::RGB_SEG_CAMERA:
-              return connector->GetRgbSegCameraData(s.id);
             case SensorType::INSTANCE_SEG_CAMERA:
               return connector->GetInstanceSegData(s.id);
             default:
