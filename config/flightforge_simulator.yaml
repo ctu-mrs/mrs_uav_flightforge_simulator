@@ -42,13 +42,8 @@ mrs_uav_flightforge_simulator:
   #  5 - CINEMATIC
   graphics_settings: "low"
 
-  # 0 -  VALLEY
-  # 1 -  FOREST (only in the full version)
-  # 2 -  INFINITE_FOREST (only in the full version)
-  # 3 -  WAREHOUSE
-  # 4 -  CAVE
-  # 5 -  ERDING_AIRBASE (only in the full version)
-  # 6 -  TEMESVAR (only in the full version)
+  # a name the simulator's list_worlds gives ("Valley", "Warehouse", "MF_Kladno", ...), a package path,
+  # or a map name unique ignoring case; empty keeps whatever world the simulator has loaded
   world_name: "valley"
 
   # Object placements to load, as the simulator's scene editor exports them. z = 0 is the floor,

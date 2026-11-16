@@ -129,6 +129,7 @@ add_library(MrsUavFlightforgeSimulator_Sensors SHARED
   src/sensor_conversions.cpp
   src/sensor_scheduler.cpp
   src/ground.cpp
+  src/world.cpp
 )
 
 target_link_libraries(MrsUavFlightforgeSimulator_Sensors
@@ -234,6 +235,7 @@ if(BUILD_TESTING)
     test/test_event_conversions.cpp
     test/test_sensor_scheduler.cpp
     test/test_ground.cpp
+    test/test_world.cpp
   )
 
   target_link_libraries(test_sensors

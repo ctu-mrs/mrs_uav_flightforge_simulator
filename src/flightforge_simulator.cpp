@@ -42,6 +42,8 @@
 #include <flight_forge_connector/robot_client.h>
 #include <flight_forge_connector/simulator_client.h>
 
+#include <mrs_uav_flightforge_simulator/world.h>
+
 #include <pcl/point_types.h>
 #include <pcl/conversions.h>
 #include <pcl/io/pcd_io.h>
@@ -96,6 +98,7 @@ private:
 
   rclcpp::TimerBase::SharedPtr timer_init_;
   void                         timerInit();
+  std::string                  setUpWorld();
 
   rclcpp::Node::SharedPtr  node_;
   rclcpp::Clock::SharedPtr clock_;
@@ -585,19 +588,6 @@ void FlightforgeSimulator::timerInit() {
     exit(1);
   }
 
-  const auto& name_to_level = flightforge::WorldName::Name2Level();
-  const auto  level         = name_to_level.find(flightforge_world_level_name_enum_);
-
-  if (level == name_to_level.end()) {
-    std::string known;
-    for (const auto& pair : name_to_level) {
-      known += " " + pair.first;
-    }
-    RCLCPP_ERROR(node_->get_logger(), "unknown world_name '%s', the known worlds are:%s", flightforge_world_level_name_enum_.c_str(), known.c_str());
-    rclcpp::shutdown();
-    exit(1);
-  }
-
   ff_sim_ = std::make_shared<flightforge::SimulatorClient>(_simulator_ip_, _simulator_port_);
 
   while (rclcpp::ok() && !ff_sim_->Connect()) {
@@ -626,11 +616,7 @@ void FlightforgeSimulator::timerInit() {
     }
   }
 
-  if (const auto switched = ff_sim_->SwitchWorld(level->second)) {
-    RCLCPP_INFO(node_->get_logger(), "switched to world '%s'", level->second.c_str());
-  } else {
-    RCLCPP_ERROR(node_->get_logger(), "could not switch to world '%s': %s", level->second.c_str(), switched.error.c_str());
-  }
+  const std::string world = setUpWorld();
 
   {
     // a node that died in lockstep leaves the world paused, and a loading level does not answer yet
@@ -672,7 +658,7 @@ void FlightforgeSimulator::timerInit() {
   std::snprintf(daytime, sizeof(daytime), "%02d:%02d", daytime_hour_ % 100, daytime_minute_ % 100);
   report(ff_sim_->SetDaytime(daytime_hour_, daytime_minute_), std::string("set the daytime to ") + daytime);
 
-  if (flightforge_world_level_name_enum_ == "infinite_forest") {
+  if (isWorld(world, "infinite_forest")) {
     report(ff_sim_->SetForestDensity(flightforge_forest_density_), "set the forest density to " + std::to_string(flightforge_forest_density_));
     report(ff_sim_->SetForestHillyLevel(flightforge_forest_hilly_level_), "set the forest hilly level to " + std::to_string(flightforge_forest_hilly_level_));
   }
@@ -810,6 +796,58 @@ void FlightforgeSimulator::timerInit() {
   RCLCPP_INFO(node_->get_logger(), "initialized");
 
   timer_init_->cancel();
+}
+
+//}
+
+/* setUpWorld() //{ */
+
+// the package of the world the UAVs spawn into, once it has begun play
+std::string FlightforgeSimulator::setUpWorld() {
+
+  const auto wait_ready = [this]() -> std::optional<flightforge::WorldList> {
+    const auto wait_from = std::chrono::steady_clock::now();
+    while (rclcpp::ok() && std::chrono::steady_clock::now() - wait_from < 30min) {
+      const auto list = ff_sim_->ListWorlds();
+      if (!list) {
+        RCLCPP_ERROR(node_->get_logger(), "could not list the worlds (FlightForge API 1.7 or newer needed): %s", list.error.c_str());
+        return std::nullopt;
+      }
+      if (worldReady(*list)) {
+        return *list;
+      }
+      RCLCPP_INFO_THROTTLE(node_->get_logger(), *wall_clock_, 10000, "waiting for the simulator to finish loading %s",
+                           list->loading.empty() ? "its world" : list->loading.c_str());
+      std::this_thread::sleep_for(1s);
+    }
+    return std::nullopt;
+  };
+
+  const auto fail = [this](const std::string& why) {
+    RCLCPP_ERROR(node_->get_logger(), "%s", why.c_str());
+    rclcpp::shutdown();
+    exit(1);
+  };
+
+  const auto list = wait_ready();
+  if (!list) {
+    fail("no world is ready in the simulator");
+  }
+
+  const auto target = worldToSwitchTo(flightforge_world_level_name_enum_);
+  if (!target) {
+    RCLCPP_INFO(node_->get_logger(), "world_name is empty, keeping the loaded world %s", list->current.c_str());
+    return list->current;
+  }
+
+  RCLCPP_INFO(node_->get_logger(), "switching to world '%s'", target->c_str());
+  const auto switched = ff_sim_->SwitchWorld(*target);
+  if (!switched) {
+    fail("could not switch to world '" + *target + "': " + switched.error + "; the worlds in this build: " + worldNames(*list));
+  }
+
+  RCLCPP_INFO(node_->get_logger(), "world %s is up, %zu robot(s) went with the old one", switched->package.c_str(), switched->removed_robots.size());
+  return switched->package;
 }
 
 //}
