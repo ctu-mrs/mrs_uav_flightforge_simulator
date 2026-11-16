@@ -5,8 +5,8 @@ mrs_uav_hw_api:
   inputs:
     actuators:             false
     control_group:         false
-    attitude_rate:         false
-    attitude:              true
+    attitude_rate:         true
+    attitude:              false
     acceleration_hdg_rate: false
     acceleration_hdg:      false
     velocity_hdg_rate:     false
