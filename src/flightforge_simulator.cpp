@@ -966,41 +966,49 @@ void FlightforgeSimulator::timerInit() {
     rclcpp::shutdown();
   }
 
-  auto name_to_id_map = ueds_connector::WorldName::Name2Id();
-  auto it             = name_to_id_map.find(flightforge_world_level_name_enum_);
-  if (it == name_to_id_map.end()) {
-    std::string error_msg = "Unknown world_name: '" + flightforge_world_level_name_enum_ + "'. Available worlds: ";
-    for (const auto& pair : name_to_id_map) {
-      error_msg += "'" + pair.first + "' ";
+  // world_name "current" keeps the level already open in Unreal (e.g. a custom map played from the editor).
+  if (flightforge_world_level_name_enum_ == "current") {
+
+    RCLCPP_INFO(node_->get_logger(), "world_name is 'current': keeping the level that is open in FlightForge.");
+
+  } else {
+
+    auto name_to_id_map = ueds_connector::WorldName::Name2Id();
+    auto it             = name_to_id_map.find(flightforge_world_level_name_enum_);
+    if (it == name_to_id_map.end()) {
+      std::string error_msg = "Unknown world_name: '" + flightforge_world_level_name_enum_ + "'. Available worlds: 'current' ";
+      for (const auto& pair : name_to_id_map) {
+        error_msg += "'" + pair.first + "' ";
+      }
+      throw std::invalid_argument(error_msg);
     }
-    throw std::invalid_argument(error_msg);
-  }
-  res = ueds_game_controller_->SwitchWorldLevel(ueds_connector::WorldName::Name2Id().at(flightforge_world_level_name_enum_));
+    res = ueds_game_controller_->SwitchWorldLevel(ueds_connector::WorldName::Name2Id().at(flightforge_world_level_name_enum_));
 
-  if (res) {
-    RCLCPP_INFO(node_->get_logger(), "World was switched succesfully.");
-  } else {
-    RCLCPP_ERROR(node_->get_logger(), "World was not switched succesfully");
-  }
-
-  res = ueds_game_controller_->Disconnect();
-  if (res) {
-    RCLCPP_INFO(node_->get_logger(), "ueds_game_controller_ was Disconnected succesfully.");
-  } else {
-    RCLCPP_ERROR(node_->get_logger(), "ueds_game_controller_ was not Disconnected succesfully.");
-  }
-
-  std::this_thread::sleep_for(std::chrono::seconds(5));
-
-  while (true) {
-    bool connect_result = ueds_game_controller_->Connect();
-    if (connect_result != 1) {
-      RCLCPP_ERROR(node_->get_logger(), "Error connecting to Unreal's game mode controller, connect_result was %d", connect_result);
+    if (res) {
+      RCLCPP_INFO(node_->get_logger(), "World was switched succesfully.");
     } else {
-      break;
+      RCLCPP_ERROR(node_->get_logger(), "World was not switched succesfully");
     }
-    /* TODO: This should be probably shomehow be dynamic and set to a machine/world combo */
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    res = ueds_game_controller_->Disconnect();
+    if (res) {
+      RCLCPP_INFO(node_->get_logger(), "ueds_game_controller_ was Disconnected succesfully.");
+    } else {
+      RCLCPP_ERROR(node_->get_logger(), "ueds_game_controller_ was not Disconnected succesfully.");
+    }
+
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+
+    while (true) {
+      bool connect_result = ueds_game_controller_->Connect();
+      if (connect_result != 1) {
+        RCLCPP_ERROR(node_->get_logger(), "Error connecting to Unreal's game mode controller, connect_result was %d", connect_result);
+      } else {
+        break;
+      }
+      /* TODO: This should be probably shomehow be dynamic and set to a machine/world combo */
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
   }
 
   res = ueds_game_controller_->SetGraphicsSettings(ueds_connector::GraphicsSettings::Name2Id().at(flightforge_graphics_settings_enum_));
