@@ -37,6 +37,7 @@ mrs_uav_flightforge_simulator:
   # 4 -  CAVE
   # 5 -  ERDING_AIRBASE (only in the full version)
   # 6 -  TEMESVAR (only in the full version)
+  # "current" - keep the level already open in Unreal (custom maps, e.g. played from the editor)
   world_name: "valley"
 
   #  {"sunny", 0},
