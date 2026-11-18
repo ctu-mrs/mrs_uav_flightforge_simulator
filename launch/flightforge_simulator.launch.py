@@ -74,6 +74,10 @@ def generate_launch_description():
         mrs_simulator_path + '/config/controllers/position_controller.yaml',
         mrs_simulator_path + '/config/controllers/velocity_controller.yaml',
         mrs_simulator_path + '/config/controllers/mixer.yaml',
+        # IMUs and their noise shaping filters: required by mrs_multirotor_simulator since its IMU noise model (4777e27),
+        # absent before. The UAVs load the filters themselves, as this simulator does not share them.
+        *[path for name in ['imu.yaml', 'imu_noise_filters.yaml']
+          for path in [mrs_simulator_path + '/config/' + name] if os.path.exists(path)],
         # the UAV configs
         mrs_simulator_path + '/config/uavs/a300.yaml',
         mrs_simulator_path + '/config/uavs/f330.yaml',

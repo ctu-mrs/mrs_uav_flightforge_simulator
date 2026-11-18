@@ -269,6 +269,13 @@ subscribers:
   actuators_group_cmd:
     enabled: false
 
+# IMU noise model of mrs_multirotor_simulator (its imu.yaml, which the launch file loads when the installed version has it):
+# off, so the IMU stays noiseless as before the model existed. Its default shaping filter, "measured_250hz", assumes
+# simulation_rate 250 Hz; this simulator steps at simulation_rate above.
+imu:
+  noise:
+    enabled: false
+
 publishers:
 
   odometry:
