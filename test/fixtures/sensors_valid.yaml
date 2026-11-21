@@ -91,6 +91,7 @@ mrs_uav_flightforge_simulator:
         rate: 10.0
         livox: false
         livox_sensor: "mid360"
+        backend: "auto"
         intensity: false
         labels: false
         publish_free: true

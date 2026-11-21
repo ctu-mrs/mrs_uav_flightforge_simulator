@@ -68,6 +68,7 @@ struct LidarParams
   double      rate;
   bool        livox;
   std::string livox_sensor;
+  std::string backend;
   bool        intensity, labels, publish_free;
   int         horizontal_rays, vertical_rays;
   double      horizontal_fov_left, horizontal_fov_right, vertical_fov_up, vertical_fov_down;

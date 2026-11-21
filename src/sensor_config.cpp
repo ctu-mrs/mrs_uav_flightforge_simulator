@@ -181,6 +181,10 @@ LidarParams loadLidar(BlockLoader& b) {
   p.rate                 = b.positive("rate");
   p.livox                = b.get<bool>("livox");
   p.livox_sensor         = b.get<std::string>("livox_sensor");
+  p.backend              = b.get<std::string>("backend");
+  if (p.backend != "auto" && p.backend != "cpu" && p.backend != "gpu") {
+    throw std::runtime_error(b.path() + "backend must be auto, cpu or gpu, got " + p.backend);
+  }
   p.intensity            = b.get<bool>("intensity");
   p.labels               = b.get<bool>("labels");
   p.publish_free         = b.get<bool>("publish_free");

@@ -84,6 +84,11 @@ TEST(SensorConfig, ErrorNamesThePath) {
   }
 }
 
+TEST(SensorConfig, UnknownLidarBackendIsFatal) {
+  EXPECT_THROW(loadWith("lidar/default/backend", std::string("vulkan")), std::runtime_error);
+  EXPECT_NO_THROW(loadWith("lidar/default/backend", std::string("gpu")));
+}
+
 TEST(SensorConfig, MisspeltTypeIsRejected) {
   EXPECT_NE(validateSensorKeys({fixture("sensors_bad_type.yaml")}, kRoot).find("sensors/rbg"), std::string::npos);
 }

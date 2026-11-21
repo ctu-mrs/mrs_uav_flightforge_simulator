@@ -176,3 +176,13 @@ TEST(Lidar, NoiseOnPerturbsAlongTheRay) {
   EXPECT_NE(x, 6.0f);
   EXPECT_NEAR(y / x, 8.0 / 6.0, 1e-5);
 }
+
+TEST(Lidar, BackendRoundTrips) {
+  for (const std::string name : {"auto", "cpu", "gpu"}) {
+    LidarParams p   = params(false, false);
+    p.backend       = name;
+    flightforge::wire::LidarConfigT cfg;
+    applyLidarParams(p, cfg);
+    EXPECT_EQ(toLidarParams(cfg, DeviceParams{}).backend, name);
+  }
+}

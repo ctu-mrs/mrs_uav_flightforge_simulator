@@ -172,6 +172,7 @@ mrs_uav_flightforge_simulator:
         rate: 10.0 # [Hz]
         livox: false
         livox_sensor: "mid360" # "mid360" or "avia"
+        backend: "auto" # "auto", "cpu" or "gpu"; gpu needs r.RayTracing in the simulator
         intensity: false # adds the material class as "intensity"
         labels: false # adds "class_id" and "instance_id"
         publish_free: true # unit directions of rays without a return on .../points_free

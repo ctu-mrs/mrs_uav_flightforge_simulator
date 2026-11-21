@@ -288,6 +288,9 @@ void applyLidarParams(const LidarParams& p, flightforge::wire::LidarConfigT& cfg
   cfg.fov_down        = p.vertical_fov_down;
   cfg.livox           = p.livox;
   cfg.livox_pattern   = p.livox_sensor;
+  cfg.backend         = p.backend == "cpu" ? flightforge::wire::LidarBackend::CPU
+                        : p.backend == "gpu" ? flightforge::wire::LidarBackend::GPU
+                                              : flightforge::wire::LidarBackend::AUTO;
 }
 
 //}
@@ -357,6 +360,9 @@ LidarParams toLidarParams(const flightforge::wire::LidarConfigT& cfg, const Devi
   p.rate                 = device.lidar_rate > 0 ? device.lidar_rate : cfg.frequency;
   p.livox                = cfg.livox;
   p.livox_sensor         = cfg.livox_pattern;
+  p.backend              = cfg.backend == flightforge::wire::LidarBackend::CPU   ? "cpu"
+                           : cfg.backend == flightforge::wire::LidarBackend::GPU ? "gpu"
+                                                                                 : "auto";
   p.intensity            = device.intensity;
   p.labels               = device.labels;
   p.publish_free         = device.publish_free;
