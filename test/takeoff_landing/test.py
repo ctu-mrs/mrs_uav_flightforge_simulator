@@ -50,9 +50,27 @@ def generate_test_description():
         raise RuntimeError(f"FlightForge executable not found at '{ff_exec}'. Please set FLIGHTFORGE_PATH or install mrs-flightforge-lite.")
 
     # Launch the UE5 FlightForge simulator in headless offscreen mode
+    cmd = [ff_exec, '-RenderOffscreen']
+    if os.geteuid() == 0:
+        # Unreal Engine refuses to run with root privileges ("Refusing to run with the root privileges.").
+        # When running in a container as root (e.g. CI), launch the simulator process as an unprivileged user.
+        user = 'ubuntu'
+        import pwd
+        try:
+            pwd.getpwnam(user)
+        except KeyError:
+            import subprocess
+            subprocess.run(['useradd', '-m', '-s', '/bin/bash', user], check=False)
+
+        os.makedirs(f'/home/{user}', exist_ok=True)
+        if shutil.which('runuser'):
+            cmd = ['runuser', '-u', user, '--'] + cmd
+        elif shutil.which('su'):
+            cmd = ['su', user, '-c', f"{ff_exec} -RenderOffscreen"]
+
     ld.add_action(
         ExecuteProcess(
-            cmd=[ff_exec, '-RenderOffscreen'],
+            cmd=cmd,
             output='screen',
             name='mrs_flight_forge',
         )
