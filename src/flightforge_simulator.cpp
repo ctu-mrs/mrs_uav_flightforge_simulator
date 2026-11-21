@@ -1052,6 +1052,7 @@ void FlightforgeSimulator::timerInit() {
     if (!resSpawn) {
       RCLCPP_ERROR(node_->get_logger(), "failed to spawn %s", uav_names[i].c_str());
       rclcpp::shutdown();
+      exit(1);
     }
 
     RCLCPP_INFO(node_->get_logger(), "%s spawned", uav_name.c_str());
@@ -1066,6 +1067,7 @@ void FlightforgeSimulator::timerInit() {
 
       RCLCPP_ERROR(node_->get_logger(), "%s - Error connecting to drone controller, connect_result was %d", uav_name.c_str(), connect_result);
       rclcpp::shutdown();
+      exit(1);
 
     } else {
       RCLCPP_INFO(node_->get_logger(), "%s - Connection succeed: %d", uav_name.c_str(), connect_result);
