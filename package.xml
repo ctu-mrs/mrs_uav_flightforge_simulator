@@ -44,6 +44,10 @@
   <exec_depend>rosidl_default_runtime</exec_depend>
   <member_of_group>rosidl_interface_packages</member_of_group>
 
+  <test_depend>ament_cmake_ros</test_depend>
+  <test_depend>launch_testing_ament_cmake</test_depend>
+  <test_depend>mrs_uav_testing</test_depend>
+
   <export>
     <build_type>ament_cmake</build_type>
   </export>
