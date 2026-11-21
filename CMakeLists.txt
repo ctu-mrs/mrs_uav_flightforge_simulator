@@ -155,6 +155,14 @@ target_compile_definitions(MrsUavFlightforgeSimulator_HwApiPlugin PRIVATE USE_RO
 pluginlib_export_plugin_description_file(mrs_uav_hw_api plugins.xml)
 
 ## --------------------------------------------------------------
+## |                           testing                          |
+## --------------------------------------------------------------
+
+if(ENABLE_TESTS)
+  add_subdirectory(test)
+endif()
+
+## --------------------------------------------------------------
 ## |                           Install                          |
 ## --------------------------------------------------------------
 

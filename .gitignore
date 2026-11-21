@@ -5,3 +5,6 @@
 build/
 
 .gitman/
+
+*.pyc
+__pycache__/
