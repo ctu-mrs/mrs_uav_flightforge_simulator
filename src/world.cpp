@@ -15,7 +15,11 @@ std::optional<std::string> worldToSwitchTo(const std::string& configured) {
     return std::nullopt;
   }
   const auto last = configured.find_last_not_of(" \t\r\n");
-  return configured.substr(first, last - first + 1);
+  const auto world = configured.substr(first, last - first + 1);
+  if (world == "current") {
+    return std::nullopt;
+  }
+  return world;
 }
 
 //}

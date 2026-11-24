@@ -74,6 +74,9 @@ def generate_launch_description():
         mrs_simulator_path + '/config/controllers/position_controller.yaml',
         mrs_simulator_path + '/config/controllers/velocity_controller.yaml',
         mrs_simulator_path + '/config/controllers/mixer.yaml',
+        # absent from mrs_multirotor_simulator before its IMU noise model
+        *[path for name in ['imu.yaml', 'imu_noise_filters.yaml']
+          for path in [mrs_simulator_path + '/config/' + name] if os.path.exists(path)],
         # the UAV configs
         mrs_simulator_path + '/config/uavs/a300.yaml',
         mrs_simulator_path + '/config/uavs/f330.yaml',

@@ -7,6 +7,7 @@ using namespace mrs_uav_flightforge_simulator;
 TEST(World, EmptyNameKeepsTheLoadedWorld) {
   EXPECT_FALSE(worldToSwitchTo("").has_value());
   EXPECT_FALSE(worldToSwitchTo("  \t").has_value());
+  EXPECT_FALSE(worldToSwitchTo("current").has_value());
   EXPECT_EQ(worldToSwitchTo(" Valley "), "Valley");
   EXPECT_EQ(worldToSwitchTo("/Game/Worlds/Warehouse/Maps/Warehouse"), "/Game/Worlds/Warehouse/Maps/Warehouse");
 }

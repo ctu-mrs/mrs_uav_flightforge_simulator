@@ -866,7 +866,7 @@ std::string FlightforgeSimulator::setUpWorld() {
 
   const auto target = worldToSwitchTo(flightforge_world_level_name_enum_);
   if (!target) {
-    RCLCPP_INFO(node_->get_logger(), "world_name is empty, keeping the loaded world %s", list->current.c_str());
+    RCLCPP_INFO(node_->get_logger(), "keeping the loaded world %s", list->current.c_str());
     return list->current;
   }
 

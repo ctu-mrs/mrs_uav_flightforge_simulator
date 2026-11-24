@@ -43,7 +43,7 @@ mrs_uav_flightforge_simulator:
   graphics_settings: "low"
 
   # a name the simulator's list_worlds gives ("Valley", "Warehouse", "MF_Kladno", ...), a package path,
-  # or a map name unique ignoring case; empty keeps whatever world the simulator has loaded
+  # or a map name unique ignoring case; "current" or empty keeps whatever world the simulator has loaded
   world_name: "valley"
 
   # Object placements to load, as the simulator's scene editor exports them. z = 0 is the floor,
@@ -279,6 +279,10 @@ subscribers:
 
   actuators_group_cmd:
     enabled: false
+
+imu:
+  noise:
+    enabled: false # the default shaping filter is for 250 Hz, simulation_rate is 100 Hz
 
 publishers:
 
