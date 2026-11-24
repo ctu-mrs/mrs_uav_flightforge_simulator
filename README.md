@@ -21,6 +21,31 @@
 
 ## Installation
 
+
+### New Linux installation
+
+1. Add the mrs public PPA repository
+```bash
+curl https://nasmrs.fel.cvut.cz:777/add_ppa_public.sh | bash
+sudo apt update
+```
+2. Install the MRS flight forge simulator package
+```bash
+sudo apt install mrs-flightforge-lite # for the minimal version
+sudo apt install mrs-flightforge-full # for the full version
+```
+3. Start the flight forge simulator by running
+```bash
+/usr/local/bin/mrs_flight_forge
+
+or 
+
+
+/usr/local/bin/mrs_flight_forge -FlightForgeLaptop # for laptop mode optimized for iGPU
+
+```
+
+
 ### Linux
 
 1. Install the [MRS UAV System](https://github.com/ctu-mrs/mrs_uav_system/tree/ros2)
