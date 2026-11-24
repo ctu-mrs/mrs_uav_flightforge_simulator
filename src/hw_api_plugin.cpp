@@ -141,6 +141,8 @@ private:
 
   void publishRC(void);
 
+  void publishMagneticField(void);
+
   void timeoutInputs(void);
 };
 
@@ -186,10 +188,6 @@ void Api::initialize(const rclcpp::Node::SharedPtr& node, std::shared_ptr<mrs_ua
   // what is requested and implemented
   _capabilities_          = common_handlers_->requested_capabilities;
   _capabilities_.api_name = "FlightforgeApi";
-
-  _capabilities_.produces_gnss_status    = false;
-  _capabilities_.produces_magnetic_field = false;
-  _capabilities_.produces_rc_rssi        = false;
 
   // | ----------------------- subscribers ---------------------- |
 
@@ -767,6 +765,21 @@ void Api::callbackOdom(const nav_msgs::msg::Odometry::ConstSharedPtr msg) {
     common_handlers_->publishers.publishGNSS(gnss);
   }
 
+  // | ------------------- publish gnss status ------------------ |
+
+  if (_capabilities_.produces_gnss_status) {
+
+    mrs_msgs::msg::GpsInfo gnss_status;
+
+    gnss_status.stamp              = odom->header.stamp;
+    gnss_status.fix_type           = mrs_msgs::msg::GpsInfo::GPS_FIX_TYPE_3D_FIX;
+    gnss_status.satellites_visible = 12;
+    gnss_status.h_acc              = 0.5;
+    gnss_status.v_acc              = 0.8;
+
+    common_handlers_->publishers.publishGNSSStatus(gnss_status);
+  }
+
   // | ----------------------- publish rtk ---------------------- |
 
   if (_capabilities_.produces_rtk) {
@@ -865,6 +878,8 @@ void Api::timerMain() {
 
   publishRC();
 
+  publishMagneticField();
+
   timeoutInputs();
 }
 
@@ -911,6 +926,40 @@ void Api::publishRC(void) {
     rc.channels.push_back(0);
 
     common_handlers_->publishers.publishRcChannels(rc);
+  }
+
+  if (_capabilities_.produces_rc_rssi) {
+
+    mrs_msgs::msg::HwApiRcRssi rssi;
+
+    rssi.stamp = clock_->now();
+    rssi.rssi  = 0;
+
+    common_handlers_->publishers.publishRcRssi(rssi);
+  }
+}
+
+//}
+
+/* publishMagneticField() //{ */
+
+void Api::publishMagneticField(void) {
+
+  if (_capabilities_.produces_magnetic_field) {
+
+    sensor_msgs::msg::MagneticField magnetic_field;
+
+    magnetic_field.header.stamp    = clock_->now();
+    magnetic_field.header.frame_id = _uav_name_ + "/" + _body_frame_name_;
+
+    // roughly the Earth's field in central Europe [T]
+    magnetic_field.magnetic_field.x = 2.1e-5;
+    magnetic_field.magnetic_field.y = 0.1e-5;
+    magnetic_field.magnetic_field.z = 4.3e-5;
+
+    magnetic_field.magnetic_field_covariance = {1e-12, 0.0, 0.0, 0.0, 1e-12, 0.0, 0.0, 0.0, 1e-12};
+
+    common_handlers_->publishers.publishMagneticField(magnetic_field);
   }
 }
 
