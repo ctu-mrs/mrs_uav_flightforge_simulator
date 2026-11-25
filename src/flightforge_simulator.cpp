@@ -608,8 +608,18 @@ void FlightforgeSimulator::timerInit() {
 
   const auto connect_start = std::chrono::steady_clock::now();
 
-  while (rclcpp::ok() && !ff_sim_->Connect()) {
-    RCLCPP_ERROR(node_->get_logger(), "could not connect to FlightForge at %s:%d", _simulator_ip_.c_str(), _simulator_port_);
+  // a proxy that starts FlightForge on demand accepts before the simulator can answer, so an unanswered GetInfo is retried like a refused connect;
+  // the late reply is skipped by its seq
+  flightforge::Expected<flightforge::ApiInfo> info;
+
+  while (rclcpp::ok()) {
+    if (!ff_sim_->Connect()) {
+      RCLCPP_ERROR(node_->get_logger(), "could not connect to FlightForge at %s:%d", _simulator_ip_.c_str(), _simulator_port_);
+    } else if (!(info = ff_sim_->GetInfo())) {
+      RCLCPP_ERROR(node_->get_logger(), "FlightForge at %s:%d did not answer GetInfo: %s", _simulator_ip_.c_str(), _simulator_port_, info.error.c_str());
+    } else {
+      break;
+    }
 
     if (_connect_timeout_ > 0 && std::chrono::duration<double>(std::chrono::steady_clock::now() - connect_start).count() > _connect_timeout_) {
       RCLCPP_ERROR(node_->get_logger(), "could not connect to FlightForge within %.1f s, is it running and does its API version match?", _connect_timeout_);
@@ -621,8 +631,6 @@ void FlightforgeSimulator::timerInit() {
   }
 
   {
-    const auto info = ff_sim_->GetInfo();
-
     if (!info || info->major != flightforge::SimulatorClient::kApiMajor) {
       const std::string theirs = info ? std::to_string(info->major) + "." + std::to_string(info->minor) : "unknown (" + info.error + ")";
       RCLCPP_ERROR(node_->get_logger(), "FlightForge API %s, this node speaks %d.%d; update either the simulator or this package so they agree",
