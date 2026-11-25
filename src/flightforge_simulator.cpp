@@ -221,6 +221,7 @@ private:
 
   double                  flightforge_fps_ = 0;
   std::string             flightforge_world_level_name_enum_;
+  double                  _connect_timeout_;
   std::string             flightforge_graphics_settings_enum_;
   int                     flightforge_forest_density_     = 5;
   int                     flightforge_forest_hilly_level_ = 3;
@@ -852,6 +853,7 @@ void FlightforgeSimulator::timerInit() {
   param_loader.loadParam(yaml_prefix + "daytime/hour", daytime_hour_);
   param_loader.loadParam(yaml_prefix + "daytime/minute", daytime_minute_);
   param_loader.loadParam(yaml_prefix + "world_name", flightforge_world_level_name_enum_);
+  param_loader.loadParam(yaml_prefix + "connect_timeout", _connect_timeout_);
 
   if (!param_loader.loadedSuccessfully() || !dynparam_mgr_->loaded_successfully()) {
     RCLCPP_ERROR(node_->get_logger(), "could not load all parameters!");
@@ -893,6 +895,8 @@ void FlightforgeSimulator::timerInit() {
 
   ueds_game_controller_ = std::make_shared<ueds_connector::GameModeController>(LOCALHOST, 8551);
 
+  const auto connect_start = std::chrono::steady_clock::now();
+
   while (rclcpp::ok()) {
 
     if (ueds_game_controller_->Connect()) {
@@ -900,6 +904,12 @@ void FlightforgeSimulator::timerInit() {
     }
 
     RCLCPP_ERROR(node_->get_logger(), "[FlightforgeSimulator]: Error connecting to Unreal's game mode controller");
+
+    if (_connect_timeout_ > 0 && std::chrono::duration<double>(std::chrono::steady_clock::now() - connect_start).count() > _connect_timeout_) {
+      RCLCPP_ERROR(node_->get_logger(), "[FlightforgeSimulator]: could not connect to FlightForge within %.1f s, is it running and does its API version match?", _connect_timeout_);
+      rclcpp::shutdown();
+      exit(1);
+    }
 
     std::this_thread::sleep_for(1s);
   }
@@ -920,6 +930,7 @@ void FlightforgeSimulator::timerInit() {
     RCLCPP_ERROR(node_->get_logger(), "     ");
 
     rclcpp::shutdown();
+    exit(1);
   }
 
   // world_name "current" keeps the level already open in Unreal (e.g. a custom map played from the editor).

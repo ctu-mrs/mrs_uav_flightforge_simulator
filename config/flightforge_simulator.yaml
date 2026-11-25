@@ -40,6 +40,9 @@ mrs_uav_flightforge_simulator:
   # "current" - keep the level already open in Unreal (custom maps, e.g. played from the editor)
   world_name: "valley"
 
+  # give up connecting to FlightForge after this time, 0 = wait forever
+  connect_timeout: 0.0 # [s]
+
   #  {"sunny", 0},
   #  {"cloudy", 1},
   #  {"foggy", 2},

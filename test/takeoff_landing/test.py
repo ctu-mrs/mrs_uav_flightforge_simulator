@@ -108,6 +108,9 @@ def generate_test_description():
                         'flightforge_simulator.launch.py'
                     ])
                 ]),
+                launch_arguments={
+                    'custom_config': os.path.join(launch_dir, 'config', 'simulator.yaml'),
+                }.items()
             )
         ])
     )
@@ -169,7 +172,7 @@ class PublisherHandlerTest(unittest.TestCase):
     def tearDown(self):
         self.node.destroy_node()
 
-    def test_interactor(self, proc_output, timeout=240):
+    def test_interactor(self, proc_output, proc_info, timeout=240):
 
         """Check whether test reported success"""
 
@@ -184,6 +187,15 @@ class PublisherHandlerTest(unittest.TestCase):
             while time.time() < end_time:
                 if len(test_result) > 0:
                     break
+
+                # fail fast if any part of the system (simulator, FlightForge, MRS UAV System) died,
+                # e.g., because of an API version mismatch with the FlightForge binary
+                for info in proc_info:
+                    returncode = getattr(info, 'returncode', None)
+                    name = info.action.process_details['name']
+                    if returncode is not None and not name.startswith('test_'):
+                        self.fail(f"Process '{name}' exited with code {returncode} before the test finished, see its output above")
+
                 rclpy.spin_once(self.node, timeout_sec=1)
 
             time.sleep(2.0)

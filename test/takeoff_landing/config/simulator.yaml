@@ -1,0 +1,4 @@
+mrs_uav_flightforge_simulator:
+
+  # fail the test quickly when FlightForge does not come up or speaks an incompatible API
+  connect_timeout: 60.0 # [s]
