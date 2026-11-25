@@ -347,7 +347,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /uav1/lidar/points
+        Value: /uav1/lidar_0/points
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
@@ -380,7 +380,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /uav1/lidar_intensity/points
+        Value: /uav1/lidar_0/points
       Use Fixed Frame: true
       Use rainbow: true
       Value: false
@@ -391,10 +391,10 @@ Visualization Manager:
         Min Value: -10
         Value: true
       Axis: Z
-      Channel Name: intensity
+      Channel Name: class_id
       Class: rviz_default_plugins/PointCloud2
       Color: 255; 255; 255
-      Color Transformer: RGB8
+      Color Transformer: Intensity
       Decay Time: 0
       Enabled: false
       Invert Rainbow: false
@@ -413,7 +413,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /uav1/lidar_segmented/points
+        Value: /uav1/lidar_0/points
       Use Fixed Frame: true
       Use rainbow: true
       Value: false
@@ -446,7 +446,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /uav1/stereo/points2
+        Value: /uav1/stereo_0/points2
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
@@ -462,7 +462,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /uav1/rgb/image_raw
+        Value: /uav1/rgb_0/image_raw
       Value: true
     - Class: rviz_default_plugins/Image
       Enabled: false
@@ -476,7 +476,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /uav1/rgb_segmented/image_raw
+        Value: /uav1/rgb_segmented_0/image_raw
       Value: false
     - Class: rviz_default_plugins/Image
       Enabled: false
@@ -490,7 +490,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /uav1/stereo/left/image_raw
+        Value: /uav1/stereo_0/left/image_raw
       Value: false
     - Class: rviz_default_plugins/Image
       Enabled: false
@@ -504,7 +504,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /uav1/stereo/right/image_raw
+        Value: /uav1/stereo_0/right/image_raw
       Value: false
   Enabled: true
   Global Options:

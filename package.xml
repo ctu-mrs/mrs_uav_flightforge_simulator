@@ -28,6 +28,7 @@
   <depend>rosgraph_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>diagnostic_msgs</depend>
   <depend>std_srvs</depend>
   <depend>mrs_multirotor_simulator</depend>
   <depend>stereo_image_proc</depend>
@@ -37,6 +38,11 @@
   <depend>backward_ros</depend>
   <depend>eigen</depend>
   <depend>geometry_msgs</depend>
+  <depend>event_camera_msgs</depend>
+  <depend>event_camera_codecs</depend>
+  <depend>yaml-cpp</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <depend>libomp-dev</depend>
 

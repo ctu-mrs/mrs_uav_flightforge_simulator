@@ -5,6 +5,7 @@
 #include <mrs_uav_hw_api/api.h>
 
 #include <nav_msgs/msg/odometry.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 #include <mrs_lib/param_loader.h>
 #include <mrs_lib/attitude_converter.h>
@@ -99,8 +100,10 @@ private:
   mrs_lib::SubscriberHandler<nav_msgs::msg::Odometry> sh_odom_;
   mrs_lib::SubscriberHandler<sensor_msgs::msg::Imu>   sh_imu_;
   mrs_lib::SubscriberHandler<sensor_msgs::msg::Range> sh_range_;
+  mrs_lib::SubscriberHandler<std_msgs::msg::Bool>     sh_crashed_;
 
   void callbackOdom(const nav_msgs::msg::Odometry::ConstSharedPtr msg);
+  void callbackCrashed(const std_msgs::msg::Bool::ConstSharedPtr msg);
   void callbackImu(const sensor_msgs::msg::Imu::ConstSharedPtr msg);
   void callbackRangefinder(const sensor_msgs::msg::Range::ConstSharedPtr msg);
 
@@ -129,6 +132,7 @@ private:
   std::string       mode_;
   std::atomic<bool> armed_     = false;
   std::atomic<bool> connected_ = false;
+  std::atomic<bool> crashed_   = false;
   std::mutex        mutex_status_;
 
   // | ------------------------- methods ------------------------ |
@@ -136,6 +140,8 @@ private:
   void publishBatteryState(void);
 
   void publishRC(void);
+
+  void publishMagneticField(void);
 
   void timeoutInputs(void);
 };
@@ -183,10 +189,6 @@ void Api::initialize(const rclcpp::Node::SharedPtr& node, std::shared_ptr<mrs_ua
   _capabilities_          = common_handlers_->requested_capabilities;
   _capabilities_.api_name = "FlightforgeApi";
 
-  _capabilities_.produces_gnss_status    = false;
-  _capabilities_.produces_magnetic_field = false;
-  _capabilities_.produces_rc_rssi        = false;
-
   // | ----------------------- subscribers ---------------------- |
 
   mrs_lib::SubscriberHandlerOptions shopts;
@@ -205,6 +207,12 @@ void Api::initialize(const rclcpp::Node::SharedPtr& node, std::shared_ptr<mrs_ua
 
   if (_capabilities_.produces_distance_sensor) {
     sh_range_ = mrs_lib::SubscriberHandler<sensor_msgs::msg::Range>(shopts, "~/simulator_rangefinder_in", &Api::callbackRangefinder, this);
+  }
+
+  {
+    mrs_lib::SubscriberHandlerOptions latched = shopts;
+    latched.qos                               = rclcpp::QoS(1).transient_local();
+    sh_crashed_ = mrs_lib::SubscriberHandler<std_msgs::msg::Bool>(latched, "~/simulator_crashed_in", &Api::callbackCrashed, this);
   }
 
   // | ----------------------- publishers ----------------------- |
@@ -320,7 +328,13 @@ std::tuple<bool, std::string> Api::callbackArming([[maybe_unused]] const bool& r
 
   std::stringstream ss;
 
-  if (request) {
+  if (request && crashed_) {
+
+    ss << "cannot arm, the UAV has crashed";
+    RCLCPP_ERROR_STREAM(node_->get_logger(), "" << ss.str());
+    return std::tuple(false, ss.str());
+
+  } else if (request) {
 
     armed_ = true;
 
@@ -611,6 +625,27 @@ void Api::callbackTrackerCmd(const mrs_msgs::msg::TrackerCommand::ConstSharedPtr
 
 // | ------------------------ callbacks ----------------------- |
 
+/* callbackCrashed() //{ */
+
+// a crashed flight controller cuts its motors and disarms, as PX4's failure detector does
+void Api::callbackCrashed(const std_msgs::msg::Bool::ConstSharedPtr msg) {
+
+  std::scoped_lock lock(mutex_status_);
+
+  if (msg->data && !crashed_) {
+    RCLCPP_ERROR(node_->get_logger(), "the UAV crashed: motors off, disarmed");
+    armed_    = false;
+    offboard_ = false;
+    mode_     = "CRASHED";
+  } else if (!msg->data && crashed_) {
+    mode_ = "";
+  }
+
+  crashed_ = msg->data;
+}
+
+//}
+
 /* //{ callbackOdom() */
 
 void Api::callbackOdom(const nav_msgs::msg::Odometry::ConstSharedPtr msg) {
@@ -730,6 +765,21 @@ void Api::callbackOdom(const nav_msgs::msg::Odometry::ConstSharedPtr msg) {
     common_handlers_->publishers.publishGNSS(gnss);
   }
 
+  // | ------------------- publish gnss status ------------------ |
+
+  if (_capabilities_.produces_gnss_status) {
+
+    mrs_msgs::msg::GpsInfo gnss_status;
+
+    gnss_status.stamp              = odom->header.stamp;
+    gnss_status.fix_type           = mrs_msgs::msg::GpsInfo::GPS_FIX_TYPE_3D_FIX;
+    gnss_status.satellites_visible = 12;
+    gnss_status.h_acc              = 0.5;
+    gnss_status.v_acc              = 0.8;
+
+    common_handlers_->publishers.publishGNSSStatus(gnss_status);
+  }
+
   // | ----------------------- publish rtk ---------------------- |
 
   if (_capabilities_.produces_rtk) {
@@ -828,6 +878,8 @@ void Api::timerMain() {
 
   publishRC();
 
+  publishMagneticField();
+
   timeoutInputs();
 }
 
@@ -874,6 +926,40 @@ void Api::publishRC(void) {
     rc.channels.push_back(0);
 
     common_handlers_->publishers.publishRcChannels(rc);
+  }
+
+  if (_capabilities_.produces_rc_rssi) {
+
+    mrs_msgs::msg::HwApiRcRssi rssi;
+
+    rssi.stamp = clock_->now();
+    rssi.rssi  = 0;
+
+    common_handlers_->publishers.publishRcRssi(rssi);
+  }
+}
+
+//}
+
+/* publishMagneticField() //{ */
+
+void Api::publishMagneticField(void) {
+
+  if (_capabilities_.produces_magnetic_field) {
+
+    sensor_msgs::msg::MagneticField magnetic_field;
+
+    magnetic_field.header.stamp    = clock_->now();
+    magnetic_field.header.frame_id = _uav_name_ + "/" + _body_frame_name_;
+
+    // roughly the Earth's field in central Europe [T]
+    magnetic_field.magnetic_field.x = 2.1e-5;
+    magnetic_field.magnetic_field.y = 0.1e-5;
+    magnetic_field.magnetic_field.z = 4.3e-5;
+
+    magnetic_field.magnetic_field_covariance = {1e-12, 0.0, 0.0, 0.0, 1e-12, 0.0, 0.0, 0.0, 1e-12};
+
+    common_handlers_->publishers.publishMagneticField(magnetic_field);
   }
 }
 

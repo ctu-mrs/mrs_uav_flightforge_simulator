@@ -3,6 +3,15 @@ mrs_uav_flightforge_simulator:
   # the rate of stepping the simulation
   simulation_rate: 100.0 # Hz
 
+  # The ip address of the simulator. If running locally, set to "localhost". 
+  simulator_ip: "localhost"
+
+  # The simulator's port; every UAV and sensor is reached through it.
+  simulator_port: 8600
+
+  # "lockstep" makes sensor rates exact in sim time, "free_running" stays closer to real time
+  time_model: "free_running"
+
   # the rate of publishing of /clock
   clock_rate:      400.0 # Hz, should be >= simulation_rate, ideally in whole multiples of simulation_rate
 
@@ -17,6 +26,9 @@ mrs_uav_flightforge_simulator:
     # if crash==false, then the collisions are elastic
     rebounce: 100.0
 
+    # touching the ground under the UAV no faster than this is a landing, faster is a crash
+    max_touchdown_speed: 2.0 # [m/s]
+
   # when true, the simulation time will get initialized from wall time
   sim_time_from_wall_time: true
 
@@ -30,15 +42,16 @@ mrs_uav_flightforge_simulator:
   #  5 - CINEMATIC
   graphics_settings: "low"
 
-  # 0 -  VALLEY
-  # 1 -  FOREST (only in the full version)
-  # 2 -  INFINITE_FOREST (only in the full version)
-  # 3 -  WAREHOUSE
-  # 4 -  CAVE
-  # 5 -  ERDING_AIRBASE (only in the full version)
-  # 6 -  TEMESVAR (only in the full version)
-  # "current" - keep the level already open in Unreal (custom maps, e.g. played from the editor)
+  # a name the simulator's list_worlds gives ("Valley", "Warehouse", "MF_Kladno", ...), a package path,
+  # or a map name unique ignoring case; "current" or empty keeps whatever world the simulator has loaded
   world_name: "valley"
+
+  # Object placements to load, as the simulator's scene editor exports them. z = 0 is the floor,
+  # unless the file sets its own frame. Relative paths start from the launch directory.
+  scene_files: []
+
+  # Object libraries for scene files to name as lib:<library>/<id>, each a manifest or a directory of .glb files.
+  libraries: []
 
   # give up connecting to FlightForge after this time, 0 = wait forever
   connect_timeout: 0.0 # [s]
@@ -59,146 +72,156 @@ mrs_uav_flightforge_simulator:
     hour: 18
     minute: 25
 
-  ############ Only Forest Procedural Generation settings ############
+  ############ Procedural generation, world_name "infinite_forest" only ############
 
   # Choose cluttered difficulties from 1 [high] to 10 [low]
-  ueds_forest_density: 6
+  forest_density: 6
 
   # Choose Hilly Level from 1 [totally flat] to 5 [the most hilly]
-  ueds_forest_hilly_level: 3
+  forest_hilly_level: 3
 
   ####################################################################
 
+  # Each type takes n_sensors instances; sensor_<i> overrides any key of the type's default block.
+  # Topics are /<uav>/<type>_<i>/..., TF frames <uav>/<type>_<i>.
   sensors:
 
-    rangefinder:
+    rgb:
+      n_sensors: 0
+      default:
+        rate: 30.0 # [Hz]
+        width: 640 # [px]
+        height: 480 # [px]
+        fov: 120.0 # [deg]
+        offset: {x: 0.14, y: 0.0, z: 0.0} # [m]
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0} # [deg]
+        enable_hdr: true
+        enable_temporal_aa: true
+        enable_raytracing: true
+        enable_motion_blur: true
+        motion_blur_amount: 0.5 # [0.0 - 1.0]
+        motion_blur_distortion: 50.0 # [0-100]
 
-      enabled: true
-      rate: 10.0 # [Hz]
+    rgb_segmented:
+      n_sensors: 0
+      default: &camera_default
+        rate: 5.0 # [Hz]
+        width: 640 # [px]
+        height: 480 # [px]
+        fov: 120.0 # [deg]
+        offset: {x: 0.14, y: 0.0, z: 0.0} # [m]
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0} # [deg]
+        enable_hdr: true
+        enable_temporal_aa: true
+        enable_raytracing: true
+        enable_motion_blur: false
+        motion_blur_amount: 0.5
+        motion_blur_distortion: 50.0
+
+    # 16UC1 in millimetres
+    depth:
+      n_sensors: 0
+      default: *camera_default
+
+    # 32SC1 instance ids, with the id -> actor map latched on .../labels
+    instance_seg:
+      n_sensors: 0
+      default: *camera_default
+
+    fisheye:
+      n_sensors: 0
+      default:
+        rate: 10.0 # [Hz]
+        width: 640 # [px]
+        height: 640 # [px]
+        fov: 180.0 # [deg]
+        lens_model: 0 # 0 equidistant, 1 equisolid, 2 stereographic, 3 kannala-brandt
+        full_frame: false
+        offset: {x: 0.1, y: 0.0, z: 0.0} # [m]
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0} # [deg]
+
+    # the eyes sit at +-baseline/2 along y around offset
+    stereo:
+      n_sensors: 0
+      default:
+        rate: 10.0 # [Hz]
+        width: 640 # [px]
+        height: 480 # [px]
+        fov: 90.0 # [deg]
+        baseline: 0.075 # [m]
+        offset: {x: 0.3, y: 0.0, z: 0.0} # [m]
+        rotation: {roll: 0.0, pitch: 20.0, yaw: 0.0} # [deg]
+        enable_hdr: true
+        enable_temporal_aa: true
+        enable_raytracing: true
+
+    # event_camera_msgs/EventPacket, evt3
+    event:
+      n_sensors: 0
+      default:
+        rate: 100.0 # [Hz]
+        width: 346 # [px]
+        height: 260 # [px]
+        fov: 90.0 # [deg]
+        contrast_threshold_pos: 0.2
+        contrast_threshold_neg: 0.2
+        max_events_per_frame: 1048576
+        offset: {x: 0.1, y: 0.0, z: 0.0} # [m]
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0} # [deg]
 
     lidar:
-
-      enabled: false
-      livox: false
-
-      rate: 10.0 # [Hz]
-
-      horizontal_fov_left: 180.0 # [deg]
-      horizontal_fov_right: 180.0 # [deg]
-
-      vertical_fov_up: 45.0 # [deg]
-      vertical_fov_down: 45.0 # [deg]
-
-      horizontal_rays: 128 # [-]
-      vertical_rays: 64 # [-]
-
-      offset:
-        x: 0.0 # [m]
-        y: 0.0 # [m]
-        z: 0.25 # [m]
-
-      # TODO which convention?
-      rotation:
-        pitch: 0.0 # [deg]
-        roll: 0.0 # [deg]
-        yaw: 0.0 # [deg]
-
-      beam_length: 20.0 # [m]
-
-      noise:
-
-        enabled: true
-
-        std_at_1m: 0.01 # [m]
-        std_slope: 0.2 # [-] # multiplies std_at_1m for each meter of measured distances
-
-      show_beams: false # TODO broken
-
-      lidar_segmented:
-        enabled: false
+      n_sensors: 0
+      default:
         rate: 10.0 # [Hz]
-
-      lidar_intensity:
-        enabled: false
-        rate: 10.0 # [Hz]
-
-        values:
-          grass: 50
-          road: 7
-          tree: 90
-          building: 70
-          fence: 40
-          dirt_road: 30
-          other: 155
-
+        livox: false
+        livox_sensor: "mid360" # "mid360" or "avia"
+        backend: "auto" # "auto", "cpu" or "gpu"; gpu needs r.RayTracing in the simulator
+        intensity: false # adds the material class as "intensity"
+        labels: false # adds "class_id" and "instance_id"
+        publish_free: true # unit directions of rays without a return on .../points_free
+        horizontal_rays: 128 # [-]
+        vertical_rays: 64 # [-]
+        horizontal_fov_left: 180.0 # [deg]
+        horizontal_fov_right: 180.0 # [deg]
+        vertical_fov_up: 45.0 # [deg]
+        vertical_fov_down: 45.0 # [deg]
+        beam_length: 20.0 # [m]
+        offset: {x: 0.0, y: 0.0, z: 0.25} # [m]
+        rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0} # [deg]
         noise:
           enabled: true
-          std_at_1m: 0.59 # [-]
-          std_slope: 0.81 # [-] # multiplies std_at_1m for each meter of measured distances
+          std_at_1m: 0.01 # [m]
+          std_slope: 0.2 # [-] multiplies std_at_1m for each meter of measured distance
 
-    rgb:
-
-      enabled: false
-
-      rate: 30.0 # [Hz]
-
-      enable_hdr: true
-      enable_temporal_aa: true
-      enable_raytracing: true
-
-      width: 640 # [px]
-      height: 480 # [px]
-      fov: 120.0 # [deg]
-
-      offset:
-        x: 0.14 # [m]
-        y: 0.0 # [m]
-        z: 0.0 # [m]
-
-      # TODO which Tait-Bryan convention is it in?
-      rotation:
-        pitch: 0.0 # [deg]
-        yaw: 0.0 # [deg]
-        roll: 0.0 # [deg]
-
-      enable_motion_blur: true
-      motion_blur_amount: 0.5 # [0.0 - 1.0]
-      motion_blur_distortion: 50.0 # [0-100]
-
-      rgb_segmented:
-        enabled: false
-        rate: 5.0 # [Hz]
-
-      depth:
-        enabled: false
+    # measures along its frame's x, as sensor_msgs/Range does; the default looks straight down
+    rangefinder:
+      n_sensors: 1
+      default:
         rate: 10.0 # [Hz]
+        offset: {x: 0.0, y: 0.0, z: 0.0} # [m]
+        rotation: {roll: 0.0, pitch: 90.0, yaw: 0.0} # [deg]
 
-    stereo:
+  # Real sensors from the simulator's device library, with datasheet parameters and housing meshes.
+  # Each takes a type: livox_mid360, livox_avia, ouster_os0_32, ouster_os1_64, odin1 or realsense_d435i.
+  # device_<i> overrides any key of the default block. Topics are /<uav>/<type>_<k>/<role>/..., TF frames
+  # <uav>/<type>_<k>_<role>, with k counting devices of that type and role one of lidar, rgb, stereo, fisheye.
+  devices:
+    n_devices: 0
+    default:
+      type: ""
+      camera_rate: 30.0 # [Hz]
+      lidar_rate: 0.0 # [Hz], 0 keeps the device's own rate
+      show_mesh: true
+      offset: {x: 0.0, y: 0.0, z: 0.1} # [m] of the housing base
+      rotation: {roll: 0.0, pitch: 0.0, yaw: 0.0} # [deg]
+      intensity: false # adds the material class as "intensity"
+      labels: false # adds "class_id" and "instance_id"
+      publish_free: false # unit directions of rays without a return on .../points_free
+      noise:
+        enabled: true
+        std_at_1m: 0.01 # [m]
+        std_slope: 0.2 # [-] multiplies std_at_1m for each meter of measured distance
 
-      enabled: false
-
-      rate: 10.0 # [Hz]
-
-      enable_hdr: true
-      enable_temporal_aa: true
-      enable_raytracing: true
-
-      baseline: 0.1 # [m]
-
-      width: 640 # [px]
-      height: 480 # [px]
-      fov: 90.0 # [deg]
-
-      offset:
-        x: 0.14 # [m]
-        y: 0.0 # [m]
-        z: 0.0 # [m]
-
-      # TODO which Tait-Bryan convention is it in?
-      rotation:
-        pitch: 20.0 # [deg]
-        yaw: 0.0 # [deg]
-        roll: 0.0 # [deg]
 
 # randomization of the initial conditions around the desired spawn point
 randomization:
@@ -213,11 +236,13 @@ randomization:
 # * when enabled, this will place a temporary patch of ground just under the spawn location
 # * this patch will disappear after the total_thrust > 0.9*hover_thrust
 individual_takeoff_platform:
-  enabled: false
+  enabled: true
 
 ground:
   enabled: true
-  z: 0.0 # [m]
+  z: 0.0 # [m] the flat ground when from_simulator is false
+  # the ground under each UAV is the surface FlightForge finds below it, and the UAV rests where its airframe touches it
+  from_simulator: true
 
 iterate_without_input: true
 
@@ -258,12 +283,9 @@ subscribers:
   actuators_group_cmd:
     enabled: false
 
-# IMU noise model of mrs_multirotor_simulator (its imu.yaml, which the launch file loads when the installed version has it):
-# off, so the IMU stays noiseless as before the model existed. Its default shaping filter, "measured_250hz", assumes
-# simulation_rate 250 Hz; this simulator steps at simulation_rate above.
 imu:
   noise:
-    enabled: false
+    enabled: false # the default shaping filter is for 250 Hz, simulation_rate is 100 Hz
 
 publishers:
 

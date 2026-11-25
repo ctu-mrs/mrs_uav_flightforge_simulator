@@ -2,7 +2,7 @@ location: .gitman
 sources:
   - repo: https://github.com/ctu-mrs/mrs_flight_forge_connector.git
     name: mrs_flight_forge_connector
-    rev: depth_cam
+    rev: 5e5d3e8dc49c974483143626913fa8467fe8f326
     type: git
     params:
     sparse_paths:
@@ -11,11 +11,13 @@ sources:
     links:
       -
     scripts:
+      -
+    patches:
       -
 sources_locked:
   - repo: https://github.com/ctu-mrs/mrs_flight_forge_connector.git
     name: mrs_flight_forge_connector
-    rev: 033ad32c4467a37aed5956e588f90235f0798536
+    rev: 5e5d3e8dc49c974483143626913fa8467fe8f326
     type: git
     params:
     sparse_paths:
@@ -24,6 +26,8 @@ sources_locked:
     links:
       -
     scripts:
+      -
+    patches:
       -
 default_group: ''
 groups:

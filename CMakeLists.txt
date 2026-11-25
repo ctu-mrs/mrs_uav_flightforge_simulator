@@ -43,6 +43,7 @@ set(DEPENDENCIES
   sensor_msgs
   std_msgs
   std_srvs
+  diagnostic_msgs
   image_transport
   cv_bridge
   pcl_ros
@@ -50,6 +51,8 @@ set(DEPENDENCIES
   geometry_msgs
   backward_ros
   rosidl_default_generators
+  event_camera_msgs
+  event_camera_codecs
 )
 
 set(TARGETS
@@ -65,6 +68,7 @@ set(TARGETS
   ${sensor_msgs_TARGETS}
   ${std_msgs_TARGETS}
   ${std_srvs_TARGETS}
+  ${diagnostic_msgs_TARGETS}
   image_transport::image_transport
   cv_bridge::cv_bridge
   pcl_ros::pcl_ros_tf
@@ -76,6 +80,7 @@ set(TARGETS
 
 set(LIBRARIES
   MrsUavFlightforgeSimulator_FlightforgeConnector
+  MrsUavFlightforgeSimulator_Sensors
   MrsUavFlightforgeSimulator_FlightforgeSimulator
   MrsUavFlightforgeSimulator_HwApiPlugin
 )
@@ -84,16 +89,18 @@ foreach(DEP IN LISTS DEPENDENCIES)
   find_package(${DEP} REQUIRED)
 endforeach()
 
+find_package(yaml-cpp REQUIRED)
+
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SetOrientation.srv"
-  DEPENDENCIES geometry_msgs
+  "msg/InstanceMap.msg"
+  DEPENDENCIES geometry_msgs std_msgs
 )
+
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_typesupport_cpp)
 
 include_directories(
   include
-  include/cereal
-  include/flight_forge_connector
-  include/kissnet
   ${rclcpp_INCLUDE_DIRS}
   ${mrs_lib_INCLUDE_DIRS}
   ${mrs_multirotor_simulator_INCLUDE_DIRS}
@@ -112,9 +119,28 @@ endif()
 ## | --------------------- FlightForge connector --------------------- |
 
 add_library(MrsUavFlightforgeSimulator_FlightforgeConnector SHARED
-  src/flight_forge_connector/socket_client.cpp
-  src/flight_forge_connector/flight_forge_connector.cpp
-  src/flight_forge_connector/game_mode_controller.cpp
+  src/flight_forge_connector/connection.cpp
+  src/flight_forge_connector/robot_client.cpp
+  src/flight_forge_connector/simulator_client.cpp
+)
+
+## | ------------------------- Sensors ------------------------ |
+
+add_library(MrsUavFlightforgeSimulator_Sensors SHARED
+  src/sensor_config.cpp
+  src/sensor_conversions.cpp
+  src/sensor_scheduler.cpp
+  src/ground.cpp
+  src/world.cpp
+)
+
+target_link_libraries(MrsUavFlightforgeSimulator_Sensors
+  ${cpp_typesupport_target}
+  yaml-cpp
+)
+
+ament_target_dependencies(MrsUavFlightforgeSimulator_Sensors
+  ${DEPENDENCIES}
 )
 
 ## | ------------------------ FlightForge Simulator ----------------------- |
@@ -125,7 +151,8 @@ add_library(MrsUavFlightforgeSimulator_FlightforgeSimulator SHARED
 
 target_link_libraries(MrsUavFlightforgeSimulator_FlightforgeSimulator
   MrsUavFlightforgeSimulator_FlightforgeConnector
-  ${PROJECT_NAME}__rosidl_generator_cpp
+  MrsUavFlightforgeSimulator_Sensors
+  ${cpp_typesupport_target}
 )
 
 target_link_libraries(MrsUavFlightforgeSimulator_FlightforgeSimulator
@@ -203,6 +230,35 @@ install(
   DIRECTORY srv
   DESTINATION share/${PROJECT_NAME}
 )
+
+## --------------------------------------------------------------
+## |                            Tests                           |
+## --------------------------------------------------------------
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_sensors
+    test/test_sensor_config.cpp
+    test/test_image_conversions.cpp
+    test/test_lidar_conversions.cpp
+    test/test_event_conversions.cpp
+    test/test_sensor_scheduler.cpp
+    test/test_ground.cpp
+    test/test_world.cpp
+  )
+
+  target_link_libraries(test_sensors
+    MrsUavFlightforgeSimulator_Sensors
+    yaml-cpp
+  )
+
+  ament_target_dependencies(test_sensors
+    ${DEPENDENCIES}
+  )
+
+  target_compile_definitions(test_sensors PRIVATE TEST_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
+endif()
 
 ament_export_include_directories(
   include
